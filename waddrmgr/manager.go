@@ -18,6 +18,7 @@ package waddrmgr
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"sync"
 
@@ -51,12 +52,6 @@ const (
 	// defaultAccountNum is the number of the default account.
 	defaultAccountNum = 0
 
-	// scryptN, scryptR, and scryptP are the parameters used for scrypt
-	// password-based key derivation.
-	scryptN = snacl.DefaultN
-	scryptR = snacl.DefaultR
-	scryptP = snacl.DefaultP
-
 	// The hierarchy described by BIP0043 is:
 	//  m/<purpose>'/*
 	// This is further extended by BIP0044 to:
@@ -81,35 +76,12 @@ const (
 	internalBranch uint32 = 1
 )
 
-// BlockStamp defines a block (by height and a unique hash) and is
-// used to mark a point in the blockchain that an address manager element is
-// synced to.
-type BlockStamp struct {
-	Height int32
-	Hash   btcwire.ShaHash
-}
-
-// SyncStatus represents the synchronization status of an address.
-type SyncStatus uint8
-
-// The various supported sync status types.  Note that this package does not
-// maintain balances or otherwise use the synchronization state, but provides
-// this status mechanism to make it easier to associate synchronization state
-// with addresses.
-const (
-	// SSUnsynced indicates an address is not synced to the block chain
-	// and hence any transactions which involve the address have not yet
-	// been accounted for.
-	SSUnsynced SyncStatus = iota
-
-	// SSPartial indicates an address is only partially synced to the block
-	// chain and hence any transactions which involve the address in later
-	// blocks have not yet been accounted for.
-	SSPartial
-
-	// SSFull indicates an address is fully synced to the block returned
-	// by the SyncedTo function.
-	SSFull
+var (
+	// scryptN, scryptR, and scryptP are the parameters used for scrypt
+	// password-based key derivation.
+	scryptN = 262144 // 2^18
+	scryptR = 8
+	scryptP = 1
 )
 
 // addrKey is used to uniquely identify an address even when those addresses
@@ -121,7 +93,7 @@ type addrKey string
 // of an account along with the extended keys needed to derive new keys.  It
 // also handles locking by keeping an encrypted version of the serialized
 // private extended key so the unencrypted versions can be cleared from memory
-// when the account manager is locked.
+// when the address manager is locked.
 type accountInfo struct {
 	// The account key is used to derive the branches which in turn derive
 	// the internal and external addresses.
@@ -142,13 +114,23 @@ type accountInfo struct {
 }
 
 // unlockDeriveInfo houses the information needed to derive a private key for a
-// managed address when the account manager is unlocked.  See the deriveOnUnlock
+// managed address when the address manager is unlocked.  See the deriveOnUnlock
 // field in the Manager struct for more details on how this is used.
 type unlockDeriveInfo struct {
 	managedAddr *managedAddress
 	branch      uint32
 	index       uint32
 }
+
+// defaultNewSecretKey returns a new secret key.  See newSecretKey.
+func defaultNewSecretKey(passphrase *[]byte) (*snacl.SecretKey, error) {
+	return snacl.NewSecretKey(passphrase, scryptN, scryptR, scryptP)
+}
+
+// newSecretKey is used as a way to replace the new secret key generation
+// function used so tests can provide a version that fails for testing error
+// paths.
+var newSecretKey = defaultNewSecretKey
 
 // Manager represents a concurrency safe crypto currency address manager and
 // key store.
@@ -158,7 +140,7 @@ type Manager struct {
 	db           *managerDB
 	net          *btcnet.Params
 	addrs        map[addrKey]ManagedAddress
-	syncedTo     *BlockStamp
+	syncState    syncState
 	watchingOnly bool
 	locked       bool
 	closed       bool
@@ -200,7 +182,7 @@ type Manager struct {
 
 	// deriveOnUnlock is a list of private keys which needs to be derived
 	// on the next unlock.  This occurs when a public address is derived
-	// while the account manager is locked since it does not have access to
+	// while the address manager is locked since it does not have access to
 	// the private extended key (hence nor the underlying private key) in
 	// order to encrypt it.
 	deriveOnUnlock []*unlockDeriveInfo
@@ -297,7 +279,7 @@ func (m *Manager) keyToManaged(derivedKey *hdkeychain.ExtendedKey, account, bran
 	}
 	if !derivedKey.IsPrivate() {
 		// Add the managed address to the list of addresses that need
-		// their private keys derived when the account manager is next
+		// their private keys derived when the address manager is next
 		// unlocked.
 		info := unlockDeriveInfo{
 			managedAddr: ma,
@@ -493,7 +475,9 @@ func (m *Manager) importedAddressRowToManaged(row *dbImportedAddressRow) (Manage
 		return nil, managerError(ErrCrypto, str, err)
 	}
 
-	ma, err := newManagedAddressWithoutPrivKey(m, row.account, pubKey, true)
+	compressed := len(pubBytes) == btcec.PubKeyBytesLenCompressed
+	ma, err := newManagedAddressWithoutPrivKey(m, row.account, pubKey,
+		compressed)
 	if err != nil {
 		return nil, err
 	}
@@ -516,6 +500,25 @@ func (m *Manager) scriptAddressRowToManaged(row *dbScriptAddressRow) (ManagedAdd
 	return newScriptAddress(m, row.account, scriptHash, row.encryptedScript)
 }
 
+// rowInterfaceToManaged returns a new managed address based on the given
+// address data loaded from the database.  It will automatically select the
+// appropriate type.
+func (m *Manager) rowInterfaceToManaged(rowInterface interface{}) (ManagedAddress, error) {
+	switch row := rowInterface.(type) {
+	case *dbChainAddressRow:
+		return m.chainAddressRowToManaged(row)
+
+	case *dbImportedAddressRow:
+		return m.importedAddressRowToManaged(row)
+
+	case *dbScriptAddressRow:
+		return m.scriptAddressRowToManaged(row)
+	}
+
+	str := fmt.Sprintf("unsupported address type %T", rowInterface)
+	return nil, managerError(ErrDatabase, str, nil)
+}
+
 // loadAndCacheAddress attempts to load the passed address from the database and
 // caches the associated managed address.
 //
@@ -534,21 +537,7 @@ func (m *Manager) loadAndCacheAddress(address btcutil.Address) (ManagedAddress, 
 
 	// Create a new managed address for the specific type of address based
 	// on type.
-	var managedAddr ManagedAddress
-	switch row := rowInterface.(type) {
-	case *dbChainAddressRow:
-		managedAddr, err = m.chainAddressRowToManaged(row)
-
-	case *dbImportedAddressRow:
-		managedAddr, err = m.importedAddressRowToManaged(row)
-
-	case *dbScriptAddressRow:
-		managedAddr, err = m.scriptAddressRowToManaged(row)
-
-	default:
-		str := fmt.Sprintf("unsupported address type %T", row)
-		err = managerError(ErrDatabase, str, nil)
-	}
+	managedAddr, err := m.rowInterfaceToManaged(rowInterface)
 	if err != nil {
 		return nil, err
 	}
@@ -585,9 +574,8 @@ func (m *Manager) Address(address btcutil.Address) (ManagedAddress, error) {
 
 // ChangePassphrase changes either the public or private passphrase to the
 // provided value depending on the private flag.  In order to change the private
-// password, the account manager must not be watching-only and also must be
-// unlocked.
-func (m *Manager) ChangePassphrase(newPassphrase []byte, private bool) error {
+// password, the address manager must not be watching-only.
+func (m *Manager) ChangePassphrase(oldPassphrase, newPassphrase []byte, private bool) error {
 	// No private passphrase to change for a watching-only address manager.
 	if private && m.watchingOnly {
 		return managerError(ErrWatchingOnly, errWatchingOnly, nil)
@@ -596,15 +584,34 @@ func (m *Manager) ChangePassphrase(newPassphrase []byte, private bool) error {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
-	// Can't change the private passphrase when locked.
-	if private && m.locked {
-		return managerError(ErrLocked, errLocked, nil)
+	// Ensure the provided old passphrase is correct.  This check is done
+	// using a copy of the appropriate master key depending on the private
+	// flag to ensure the current state is not altered.  The temp key is
+	// cleared when done to avoid leaving a copy in memory.
+	var keyName string
+	secretKey := snacl.SecretKey{Key: &snacl.CryptoKey{}}
+	if private {
+		keyName = "private"
+		secretKey.Parameters = m.masterKeyPriv.Parameters
+	} else {
+		keyName = "public"
+		secretKey.Parameters = m.masterKeyPub.Parameters
 	}
+	if err := secretKey.DeriveKey(&oldPassphrase); err != nil {
+		if err == snacl.ErrInvalidPassword {
+			str := fmt.Sprintf("invalid passphrase for %s master "+
+				"key", keyName)
+			return managerError(ErrWrongPassphrase, str, nil)
+		}
+
+		str := fmt.Sprintf("failed to derive %s master key", keyName)
+		return managerError(ErrCrypto, str, err)
+	}
+	defer secretKey.Zero()
 
 	// Generate a new master key from the passphrase which is used to secure
 	// the actual secret keys.
-	newMasterKey, err := snacl.NewSecretKey(&newPassphrase, scryptN,
-		scryptR, scryptP)
+	newMasterKey, err := newSecretKey(&newPassphrase)
 	if err != nil {
 		str := "failed to create new master private key"
 		return managerError(ErrCrypto, str, err)
@@ -612,9 +619,21 @@ func (m *Manager) ChangePassphrase(newPassphrase []byte, private bool) error {
 	newKeyParams := newMasterKey.Marshal()
 
 	if private {
+		// Technically, the locked state could be checked here to only
+		// do the decrypts when the address manager is locked as the
+		// clear text keys are already available in memory when it is
+		// unlocked, but this is not a hot path, decryption is quite
+		// fast, and it's less cyclomatic complexity to simply decrypt
+		// in either case.
+
 		// Re-encrypt the crypto private key using the new master
 		// private key.
-		encPriv, err := newMasterKey.Encrypt(m.cryptoKeyPriv[:])
+		decPriv, err := secretKey.Decrypt(m.cryptoKeyPrivEncrypted)
+		if err != nil {
+			return err
+		}
+		encPriv, err := newMasterKey.Encrypt(decPriv)
+		zero(decPriv)
 		if err != nil {
 			str := "failed to encrypt crypto private key"
 			return managerError(ErrCrypto, str, err)
@@ -622,10 +641,21 @@ func (m *Manager) ChangePassphrase(newPassphrase []byte, private bool) error {
 
 		// Re-encrypt the crypto script key using the new master private
 		// key.
-		encScript, err := newMasterKey.Encrypt(m.cryptoKeyScript[:])
+		decScript, err := secretKey.Decrypt(m.cryptoKeyScriptEncrypted)
+		if err != nil {
+			return err
+		}
+		encScript, err := newMasterKey.Encrypt(decScript)
+		zero(decScript)
 		if err != nil {
 			str := "failed to encrypt crypto script key"
 			return managerError(ErrCrypto, str, err)
+		}
+
+		// When the manager is locked, ensure the new clear text master
+		// key is cleared from memory now that it is no longer needed.
+		if m.locked {
+			newMasterKey.Zero()
 		}
 
 		// Save the new keys and params to the the db in a single
@@ -642,9 +672,11 @@ func (m *Manager) ChangePassphrase(newPassphrase []byte, private bool) error {
 			return err
 		}
 
-		// Now that the db has been successfully updated, update memory.
+		// Now that the db has been successfully updated, clear the old
+		// key and set the new one.
 		copy(m.cryptoKeyPrivEncrypted[:], encPriv)
 		copy(m.cryptoKeyScriptEncrypted[:], encScript)
+		m.masterKeyPriv.Zero() // Clear the old key.
 		m.masterKeyPriv = newMasterKey
 	} else {
 		// Re-encrypt the crypto public key using the new master public
@@ -669,15 +701,17 @@ func (m *Manager) ChangePassphrase(newPassphrase []byte, private bool) error {
 			return err
 		}
 
-		// Now that the db has been successfully updated, update memory.
+		// Now that the db has been successfully updated, clear the old
+		// key and set the new one.
+		m.masterKeyPub.Zero()
 		m.masterKeyPub = newMasterKey
 	}
 
 	return nil
 }
 
-// ExportWatchingOnly creates a new watching-only account manager backed by a
-// database at the provided path.  A watching-only account manager has all
+// ExportWatchingOnly creates a new watching-only address manager backed by a
+// database at the provided path.  A watching-only address manager has all
 // private keys removed which means it is not possible to create transactions
 // which spend funds.
 func (m *Manager) ExportWatchingOnly(newDbPath string, pubPassphrase []byte) (*Manager, error) {
@@ -716,6 +750,15 @@ func (m *Manager) ExportWatchingOnly(newDbPath string, pubPassphrase []byte) (*M
 	return loadManager(watchingDb, pubPassphrase, m.net)
 }
 
+// Export writes the manager database to the provided writer.
+func (m *Manager) Export(w io.Writer) error {
+	m.mtx.RLock()
+	defer m.mtx.RUnlock()
+
+	// Copy the existing manager database to the provided path.
+	return m.db.WriteTo(w)
+}
+
 // existsAddress returns whether or not the passed address is known to the
 // address manager.
 //
@@ -739,28 +782,29 @@ func (m *Manager) existsAddress(addressID []byte) (bool, error) {
 	return exists, nil
 }
 
-// ImportPrivateKey imports a WIF private key into the account manager.  The
+// ImportPrivateKey imports a WIF private key into the address manager.  The
 // imported address is created using either a compressed or uncompressed
 // serialized public key, depending on the CompressPubKey bool of the WIF.
 //
 // All imported addresses will be part of the account defined by the
 // ImportedAddrAccount constant.
 //
-// This function will return a an error if the address manager is watching-only,
-// locked, or not for the same network as the key trying to be imported.  It
-// will also return an error if the address already exists.  Any other errors
+// NOTE: When the address manager is watching-only, the private key itself will
+// not be stored or available since it is private data.  Instead, only the
+// public key will be stored.  This means it is paramount the private key is
+// kept elsewhere as the watching-only address manager will NOT ever have access
+// to it.
+//
+// This function will return a an error if the address manager is lock and not
+// watching-only, or not for the same network as the key trying to be imported.
+// It will also return an error if the address already exists.  Any other errors
 // returned are generally unexpected.
 func (m *Manager) ImportPrivateKey(wif *btcutil.WIF, bs *BlockStamp) (ManagedPubKeyAddress, error) {
-	// A watching-only address manager must not contain private keys.
-	if m.watchingOnly {
-		return nil, managerError(ErrWatchingOnly, errWatchingOnly, nil)
-	}
-
 	// Ensure the address is intended for network the address manager is
 	// associated with.
 	if !wif.IsForNet(m.net) {
 		str := fmt.Sprintf("private key is not for the same network the "+
-			"account manager is configured for (%s)", m.net.Name)
+			"address manager is configured for (%s)", m.net.Name)
 		return nil, managerError(ErrWrongNet, str, nil)
 	}
 
@@ -768,7 +812,7 @@ func (m *Manager) ImportPrivateKey(wif *btcutil.WIF, bs *BlockStamp) (ManagedPub
 	defer m.mtx.Unlock()
 
 	// The manager must be unlocked to encrypt the imported private key.
-	if m.locked {
+	if m.locked && !m.watchingOnly {
 		return nil, managerError(ErrLocked, errLocked, nil)
 	}
 
@@ -785,13 +829,7 @@ func (m *Manager) ImportPrivateKey(wif *btcutil.WIF, bs *BlockStamp) (ManagedPub
 		return nil, managerError(ErrDuplicate, str, nil)
 	}
 
-	// Encrypt private and public keys.
-	encryptedPrivKey, err := m.cryptoKeyPriv.Encrypt(wif.PrivKey.Serialize())
-	if err != nil {
-		str := fmt.Sprintf("failed to encrypt private key for %x",
-			serializedPubKey)
-		return nil, managerError(ErrCrypto, str, err)
-	}
+	// Encrypt public key.
 	encryptedPubKey, err := m.cryptoKeyPub.Encrypt(serializedPubKey)
 	if err != nil {
 		str := fmt.Sprintf("failed to encrypt public key for %x",
@@ -799,18 +837,61 @@ func (m *Manager) ImportPrivateKey(wif *btcutil.WIF, bs *BlockStamp) (ManagedPub
 		return nil, managerError(ErrCrypto, str, err)
 	}
 
-	// Save the new imported address to the db in a single transaction.
+	// Encrypt the private key when not a watching-only address manager.
+	var encryptedPrivKey []byte
+	if !m.watchingOnly {
+		privKeyBytes := wif.PrivKey.Serialize()
+		encryptedPrivKey, err = m.cryptoKeyPriv.Encrypt(privKeyBytes)
+		zero(privKeyBytes)
+		if err != nil {
+			str := fmt.Sprintf("failed to encrypt private key for %x",
+				serializedPubKey)
+			return nil, managerError(ErrCrypto, str, err)
+		}
+	}
+
+	// The start block needs to be updated when the newly imported address
+	// is before the current one.
+	updateStartBlock := false
+	if bs.Height < m.syncState.startBlock.Height {
+		updateStartBlock = true
+	}
+
+	// Save the new imported address to the db and update start block (if
+	// needed) in a single transaction.
 	err = m.db.Update(func(tx *managerTx) error {
-		return tx.PutImportedAddress(pubKeyHash, ImportedAddrAccount,
+		err := tx.PutImportedAddress(pubKeyHash, ImportedAddrAccount,
 			ssNone, encryptedPubKey, encryptedPrivKey)
+		if err != nil {
+			return err
+		}
+
+		if updateStartBlock {
+			return tx.PutStartBlock(bs)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	// Now that the database has been updated, update the start block in
+	// memory too if needed.
+	if updateStartBlock {
+		m.syncState.startBlock = *bs
+	}
+
 	// Create a new managed address based on the imported address.
-	managedAddr, err := newManagedAddress(m, ImportedAddrAccount,
-		wif.PrivKey, wif.CompressPubKey)
+	var managedAddr *managedAddress
+	if !m.watchingOnly {
+		managedAddr, err = newManagedAddress(m, ImportedAddrAccount,
+			wif.PrivKey, wif.CompressPubKey)
+	} else {
+		pubKey := (*btcec.PublicKey)(&wif.PrivKey.PublicKey)
+		managedAddr, err = newManagedAddressWithoutPrivKey(m,
+			ImportedAddrAccount, pubKey, wif.CompressPubKey)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -822,23 +903,24 @@ func (m *Manager) ImportPrivateKey(wif *btcutil.WIF, bs *BlockStamp) (ManagedPub
 	return managedAddr, nil
 }
 
-// ImportScript imports a user-provided script into the account manager.  The
+// ImportScript imports a user-provided script into the address manager.  The
 // imported script will act as a pay-to-script-hash address.
 //
-// This function will return an error if the address manager is watching-only,
-// locked, or the address already exists.  It will also return any underlying
-// script parse errors and any other errors returned are generally unexpected.
+// All imported script addresses will be part of the account defined by the
+// ImportedAddrAccount constant.
+//
+// When the address manager is watching-only, the script itself will not be
+// stored or available since it is considered private data.
+//
+// This function will return an error if the address manager is locked and not
+// watching-only, or the address already exists.  Any other errors returned are
+// generally unexpected.
 func (m *Manager) ImportScript(script []byte, bs *BlockStamp) (ManagedScriptAddress, error) {
-	// A watching-only address manager must not contain private data.
-	if m.watchingOnly {
-		return nil, managerError(ErrWatchingOnly, errWatchingOnly, nil)
-	}
-
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
 	// The manager must be unlocked to encrypt the imported script.
-	if m.locked {
+	if m.locked && !m.watchingOnly {
 		return nil, managerError(ErrLocked, errLocked, nil)
 	}
 
@@ -855,7 +937,7 @@ func (m *Manager) ImportScript(script []byte, bs *BlockStamp) (ManagedScriptAddr
 	}
 
 	// Encrypt the script hash using the crypto public key so it is
-	// accessible when the address manager is locked.
+	// accessible when the address manager is locked or watching-only.
 	encryptedHash, err := m.cryptoKeyPub.Encrypt(scriptHash)
 	if err != nil {
 		str := fmt.Sprintf("failed to encrypt script hash %x",
@@ -864,34 +946,62 @@ func (m *Manager) ImportScript(script []byte, bs *BlockStamp) (ManagedScriptAddr
 	}
 
 	// Encrypt the script for storage in database using the crypto script
-	// key.
-	encryptedScript, err := m.cryptoKeyScript.Encrypt(script)
-	if err != nil {
-		str := fmt.Sprintf("failed to encrypt script for %x",
-			scriptHash)
-		return nil, managerError(ErrCrypto, str, err)
+	// key when not a watching-only address manager.
+	var encryptedScript []byte
+	if !m.watchingOnly {
+		encryptedScript, err = m.cryptoKeyScript.Encrypt(script)
+		if err != nil {
+			str := fmt.Sprintf("failed to encrypt script for %x",
+				scriptHash)
+			return nil, managerError(ErrCrypto, str, err)
+		}
 	}
 
-	// Save the new imported address to the db in a single transaction.
+	// The start block needs to be updated when the newly imported address
+	// is before the current one.
+	updateStartBlock := false
+	if bs.Height < m.syncState.startBlock.Height {
+		updateStartBlock = true
+	}
+
+	// Save the new imported address to the db and update start block (if
+	// needed) in a single transaction.
 	err = m.db.Update(func(tx *managerTx) error {
-		return tx.PutScriptAddress(scriptHash, ImportedAddrAccount,
+		err := tx.PutScriptAddress(scriptHash, ImportedAddrAccount,
 			ssNone, encryptedHash, encryptedScript)
+		if err != nil {
+			return err
+		}
+
+		if updateStartBlock {
+			return tx.PutStartBlock(bs)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	// Now that the database has been updated, update the start block in
+	// memory too if needed.
+	if updateStartBlock {
+		m.syncState.startBlock = *bs
+	}
+
 	// Create a new managed address based on the imported script.  Also,
-	// make a copy of the script since it will be cleared on lock and the
-	// script the caller passed should not be cleared out from under the
-	// caller.
+	// when not a watching-only address manager, make a copy of the script
+	// since it will be cleared on lock and the script the caller passed
+	// should not be cleared out from under the caller.
 	scriptAddr, err := newScriptAddress(m, ImportedAddrAccount, scriptHash,
 		encryptedScript)
 	if err != nil {
 		return nil, err
 	}
-	scriptAddr.scriptCT = make([]byte, len(script))
-	copy(scriptAddr.scriptCT, script)
+	if !m.watchingOnly {
+		scriptAddr.scriptCT = make([]byte, len(script))
+		copy(scriptAddr.scriptCT, script)
+	}
 
 	// Add the new managed address to the cache of recent addresses and
 	// return it.
@@ -899,7 +1009,7 @@ func (m *Manager) ImportScript(script []byte, bs *BlockStamp) (ManagedScriptAddr
 	return scriptAddr, nil
 }
 
-// IsLocked returns whether or not the account managed is locked.  When it is
+// IsLocked returns whether or not the address managed is locked.  When it is
 // unlocked, the decryption key needed to decrypt private keys used for signing
 // is in memory.
 func (m *Manager) IsLocked() bool {
@@ -934,8 +1044,8 @@ func (m *Manager) Lock() error {
 
 // Unlock derives the master private key from the specified passphrase.  An
 // invalid passphrase will return an error.  Otherwise, the derived secret key
-// is stored in memory until the account manager is locked.  Any failures that
-// occur during this function will result in the account manager being locked,
+// is stored in memory until the address manager is locked.  Any failures that
+// occur during this function will result in the address manager being locked,
 // even if it was already unlocked prior to calling this function.
 //
 // This function will return an error if invoked on a watching-only address
@@ -994,7 +1104,7 @@ func (m *Manager) Unlock(passphrase []byte) error {
 	}
 
 	// Derive any private keys that are pending due to them being created
-	// while the account manager was locked.
+	// while the address manager was locked.
 	for _, info := range m.deriveOnUnlock {
 		addressKey, err := m.deriveKeyFromPath(info.managedAddr.account,
 			info.branch, info.index, true)
@@ -1026,7 +1136,7 @@ func (m *Manager) Unlock(passphrase []byte) error {
 	return nil
 }
 
-// Net returns the network parameters for this account manager.
+// Net returns the network parameters for this address manager.
 func (m *Manager) Net() *btcnet.Params {
 	// NOTE: No need for mutex here since the net field does not change
 	// after the manager instance is created.
@@ -1046,7 +1156,7 @@ func (m *Manager) nextAddresses(account uint32, numAddresses uint32, internal bo
 		return nil, err
 	}
 
-	// Choose the account key to used based on whether the account manager
+	// Choose the account key to used based on whether the address manager
 	// is locked.
 	acctKey := acctInfo.acctKeyPub
 	if !m.locked {
@@ -1117,6 +1227,9 @@ func (m *Manager) nextAddresses(account uint32, numAddresses uint32, internal bo
 		if err != nil {
 			return nil, err
 		}
+		if internal {
+			managedAddr.internal = true
+		}
 		info := unlockDeriveInfo{
 			managedAddr: managedAddr,
 			branch:      branchNum,
@@ -1145,15 +1258,16 @@ func (m *Manager) nextAddresses(account uint32, numAddresses uint32, internal bo
 	}
 
 	// Finally update the next address tracking and add the addresses to the
-	// cache after the newly generated address have been successfully added
-	// to the db.
+	// cache after the newly generated addresses have been successfully
+	// added to the db.
 	managedAddresses := make([]ManagedAddress, 0, len(addressInfo))
 	for _, info := range addressInfo {
 		ma := info.managedAddr
 		m.addrs[addrKey(ma.Address().ScriptAddress())] = ma
 
-		// Add the new managed address to the list of addresses that need their
-		// private keys derived when the account manager is next unlocked.
+		// Add the new managed address to the list of addresses that
+		// need their private keys derived when the address manager is
+		// next unlocked.
 		if m.locked && !m.watchingOnly {
 			m.deriveOnUnlock = append(m.deriveOnUnlock, info)
 		}
@@ -1260,63 +1374,48 @@ func (m *Manager) LastInternalAddress(account uint32) (ManagedAddress, error) {
 	return acctInfo.lastInternalAddr, nil
 }
 
-// SetSyncStatus sets the sync status for a single address.  This may error if
-// the address is not found in the address manager.
-//
-// When marking an address as unsynced, only the type Unsynced matters.
-// The value is ignored.
-func (m *Manager) SetSyncStatus(a btcutil.Address, ss SyncStatus) error {
+// AllActiveAddresses returns a slice of all addresses stored in the manager.
+func (m *Manager) AllActiveAddresses() ([]btcutil.Address, error) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
-	ma, ok := m.addrs[addrKey(a.ScriptAddress())]
-	if !ok {
-		str := fmt.Sprintf("address %s not found", a.EncodeAddress())
-		return managerError(ErrAddressNotFound, str, nil)
+	// Load the raw address information from the database.
+	var rowInterfaces []interface{}
+	err := m.db.View(func(tx *managerTx) error {
+		var err error
+		rowInterfaces, err = tx.FetchAllAddresses()
+		return err
+	})
+	if err != nil {
+		return nil, err
 	}
-	_ = ma
 
-	// TODO(davec: Implement
-	//ma.setSyncStatus(ss)
-	return ErrNotImplemented
+	addrs := make([]btcutil.Address, 0, len(rowInterfaces))
+	for _, rowInterface := range rowInterfaces {
+		// Create a new managed address for the specific type of address
+		// based on type.
+		managedAddr, err := m.rowInterfaceToManaged(rowInterface)
+		if err != nil {
+			return nil, err
+		}
+
+		addrs = append(addrs, managedAddr.Address())
+	}
+
+	return addrs, nil
 }
 
-// SetSyncedTo marks already synced addresses in the address manager to be in
-// sync with the recently-seen block described by the blockstamp.  Unsynced
-// addresses are unaffected by this method.
-func (m *Manager) SetSyncedTo(bs *BlockStamp) error {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
-
-	// TODO(davec): Fix it up..
-	return ErrNotImplemented
-}
-
-// SyncedTo returns details about the block height and hash that the address
-// manager is synced through at the very least.  The intention is that callers
-// can use this information for intelligently initiating rescans to sync back to
-// the best chain from the last known good block.
-//
-// Each ManagedAddress that is marked with SyncStatus of SSFull will be assumed
-// synced through this block.
-func (m *Manager) SyncedTo() BlockStamp {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
-
-	// Return a copy so updates do not affect the caller.
-	return *m.syncedTo
-}
-
-// newManager returns a new locked account manager with the given parameters.
+// newManager returns a new locked address manager with the given parameters.
 func newManager(db *managerDB, net *btcnet.Params, masterKeyPub *snacl.SecretKey,
 	masterKeyPriv *snacl.SecretKey, cryptoKeyPub *snacl.CryptoKey,
-	cryptoKeyPrivEncrypted, cryptoKeyScriptEncrypted []byte) *Manager {
+	cryptoKeyPrivEncrypted, cryptoKeyScriptEncrypted []byte,
+	syncInfo *syncState) *Manager {
 
 	return &Manager{
 		db:                       db,
 		net:                      net,
 		addrs:                    make(map[addrKey]ManagedAddress),
-		syncedTo:                 &BlockStamp{},
+		syncState:                *syncInfo,
 		locked:                   true,
 		acctInfo:                 make(map[uint32]*accountInfo),
 		masterKeyPub:             masterKeyPub,
@@ -1403,7 +1502,7 @@ func checkBranchKeys(acctKey *hdkeychain.ExtendedKey) error {
 	return err
 }
 
-// loadManager returns a new account manager that results from loading it from
+// loadManager returns a new address manager that results from loading it from
 // the passed opened database.  The public passphrase is required to decrypt the
 // public keys.
 func loadManager(db *managerDB, pubPassphrase []byte, net *btcnet.Params) (*Manager, error) {
@@ -1411,6 +1510,9 @@ func loadManager(db *managerDB, pubPassphrase []byte, net *btcnet.Params) (*Mana
 	var watchingOnly bool
 	var masterKeyPubParams, masterKeyPrivParams []byte
 	var cryptoKeyPubEnc, cryptoKeyPrivEnc, cryptoKeyScriptEnc []byte
+	var syncedTo, startBlock *BlockStamp
+	var recentHeight int32
+	var recentHashes []btcwire.ShaHash
 	err := db.View(func(tx *managerTx) error {
 		// Load whether or not the manager is watching-only from the db.
 		var err error
@@ -1429,6 +1531,21 @@ func loadManager(db *managerDB, pubPassphrase []byte, net *btcnet.Params) (*Mana
 		// Load the crypto keys from the db.
 		cryptoKeyPubEnc, cryptoKeyPrivEnc, cryptoKeyScriptEnc, err =
 			tx.FetchCryptoKeys()
+		if err != nil {
+			return err
+		}
+
+		// Load the sync state from the db.
+		syncedTo, err = tx.FetchSyncedTo()
+		if err != nil {
+			return err
+		}
+		startBlock, err = tx.FetchStartBlock()
+		if err != nil {
+			return err
+		}
+
+		recentHeight, recentHashes, err = tx.FetchRecentBlocks()
 		return err
 	})
 	if err != nil {
@@ -1468,20 +1585,19 @@ func loadManager(db *managerDB, pubPassphrase []byte, net *btcnet.Params) (*Mana
 	copy(cryptoKeyPub[:], cryptoKeyPubCT)
 	zero(cryptoKeyPubCT)
 
-	// TODO(davec): Load up syncedTo from db.
-	syncedTo := &BlockStamp{}
+	// Create the sync state struct.
+	syncInfo := newSyncState(startBlock, syncedTo, recentHeight, recentHashes)
 
-	// Create new account manager with the given parameters.  Also, override
+	// Create new address manager with the given parameters.  Also, override
 	// the defaults for the additional fields which are not specified in the
 	// call to new with the values loaded from the database.
 	mgr := newManager(db, net, &masterKeyPub, &masterKeyPriv, &cryptoKeyPub,
-		cryptoKeyPrivEnc, cryptoKeyScriptEnc)
+		cryptoKeyPrivEnc, cryptoKeyScriptEnc, syncInfo)
 	mgr.watchingOnly = watchingOnly
-	mgr.syncedTo = syncedTo
 	return mgr, nil
 }
 
-// Open loads an existing account manager from the given database path.  The
+// Open loads an existing address manager from the given database path.  The
 // public passphrase is required to decrypt the public keys used to protect the
 // public information such as addresses.  This is important since access to
 // BIP0032 extended keys means it is possible to generate all future addresses.
@@ -1491,7 +1607,7 @@ func loadManager(db *managerDB, pubPassphrase []byte, net *btcnet.Params) (*Mana
 func Open(dbPath string, pubPassphrase []byte, net *btcnet.Params) (*Manager, error) {
 	// Return an error if the specified database does not exist.
 	if !fileExists(dbPath) {
-		str := "the specified account manager does not exist"
+		str := "the specified address manager does not exist"
 		return nil, managerError(ErrNoExist, str, nil)
 	}
 
@@ -1503,17 +1619,20 @@ func Open(dbPath string, pubPassphrase []byte, net *btcnet.Params) (*Manager, er
 	return loadManager(db, pubPassphrase, net)
 }
 
-// Create returns a new locked account manager at the given database path.  The
+// Create returns a new locked address manager at the given database path.  The
 // seed must conform to the standards described in hdkeychain.NewMaster and will
 // be used to create the master root node from which all hierarchical
 // deterministic addresses are derived.  This allows all chained addresses in
-// the account manager to be recovered by using the same seed.
+// the address manager to be recovered by using the same seed.
 //
 // All private and public keys and information are protected by secret keys
 // derived from the provided private and public passphrases.  The public
-// passphrase is required on subsequent opens of the account manager, and the
-// private passphrase is required to unlock the account manager in order to gain
+// passphrase is required on subsequent opens of the address manager, and the
+// private passphrase is required to unlock the address manager in order to gain
 // access to any private keys and information.
+//
+// The createAt parameter can be nil in which case the genesis block for the
+// provided network will be used.
 //
 // A ManagerError with an error code of ErrAlreadyExists will be returned if the
 // passed database already exists.
@@ -1575,14 +1694,12 @@ func Create(dbPath string, seed, pubPassphrase, privPassphrase []byte, net *btcn
 
 	// Generate new master keys.  These master keys are used to protect the
 	// crypto keys that will be generated next.
-	masterKeyPub, err := snacl.NewSecretKey(&pubPassphrase, scryptN,
-		scryptR, scryptP)
+	masterKeyPub, err := newSecretKey(&pubPassphrase)
 	if err != nil {
 		str := "failed to master public key"
 		return nil, managerError(ErrCrypto, str, err)
 	}
-	masterKeyPriv, err := snacl.NewSecretKey(&privPassphrase, scryptN,
-		scryptR, scryptP)
+	masterKeyPriv, err := newSecretKey(&privPassphrase)
 	if err != nil {
 		str := "failed to master private key"
 		return nil, managerError(ErrCrypto, str, err)
@@ -1636,6 +1753,15 @@ func Create(dbPath string, seed, pubPassphrase, privPassphrase []byte, net *btcn
 		return nil, managerError(ErrCrypto, str, err)
 	}
 
+	// Use the genesis block for the passed network as the created at block
+	// for the defaut.
+	createdAt := &BlockStamp{Hash: *net.GenesisHash, Height: 0}
+
+	// Create the initial sync state.
+	recentHashes := []btcwire.ShaHash{createdAt.Hash}
+	recentHeight := createdAt.Height
+	syncInfo := newSyncState(createdAt, createdAt, recentHeight, recentHashes)
+
 	// Perform all database updates in a single transaction.
 	err = db.Update(func(tx *managerTx) error {
 		// Save the master key params to the database.
@@ -1653,9 +1779,25 @@ func Create(dbPath string, seed, pubPassphrase, privPassphrase []byte, net *btcn
 			return err
 		}
 
-		// Save the fact this is not a watching-only account manager to
+		// Save the fact this is not a watching-only address manager to
 		// the database.
 		err = tx.PutWatchingOnly(false)
+		if err != nil {
+			return err
+		}
+
+		// Save the initial synced to state.
+		err = tx.PutSyncedTo(&syncInfo.syncedTo)
+		if err != nil {
+			return err
+		}
+		err = tx.PutStartBlock(&syncInfo.startBlock)
+		if err != nil {
+			return err
+		}
+
+		// Save the initial recent blocks state.
+		err = tx.PutRecentBlocks(recentHeight, recentHashes)
 		if err != nil {
 			return err
 		}
@@ -1673,11 +1815,11 @@ func Create(dbPath string, seed, pubPassphrase, privPassphrase []byte, net *btcn
 		return nil, err
 	}
 
-	// The new account manager is locked by default, so clear the master,
+	// The new address manager is locked by default, so clear the master,
 	// crypto private, and crypto script keys from memory.
 	masterKeyPriv.Zero()
 	cryptoKeyPriv.Zero()
 	cryptoKeyScript.Zero()
 	return newManager(db, net, masterKeyPub, masterKeyPriv, cryptoKeyPub,
-		cryptoKeyPrivEnc, cryptoKeyScriptEnc), nil
+		cryptoKeyPrivEnc, cryptoKeyScriptEnc, syncInfo), nil
 }

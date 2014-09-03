@@ -19,19 +19,18 @@ package waddrmgr
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/conformal/bolt"
+	"github.com/conformal/btcwire"
 	"github.com/conformal/fastsha256"
 )
 
-var ErrNotImplemented = errors.New("not implemented")
-
 const (
-	// lastestDbVersion is the most recent database version.
-	lastestDbVersion = 1
+	// LatestDbVersion is the most recent database version.
+	LatestDbVersion = 1
 )
 
 // syncStatus represents a address synchronization status stored in the
@@ -39,6 +38,9 @@ const (
 type syncStatus uint8
 
 // These constants define the various supported sync status types.
+//
+// NOTE: These are currently unused but are being defined for the possibility of
+// supporting sync status on a per-address basis.
 const (
 	ssNone    syncStatus = 0 // not iota as they need to be stable for db
 	ssPartial syncStatus = 1
@@ -119,8 +121,9 @@ var (
 	// Bucket names.
 	acctBucketName        = []byte("acct")
 	addrBucketName        = []byte("addr")
-	mainBucketName        = []byte("main")
 	addrAcctIdxBucketName = []byte("addracctidx")
+	mainBucketName        = []byte("main")
+	syncBucketName        = []byte("sync")
 
 	// Db related key names (main bucket).
 	dbVersionName    = []byte("dbver")
@@ -133,6 +136,11 @@ var (
 	cryptoPubKeyName    = []byte("cpub")
 	cryptoScriptKeyName = []byte("cscript")
 	watchingOnlyName    = []byte("watchonly")
+
+	// Sync related key names (sync bucket).
+	syncedToName     = []byte("syncedto")
+	startBlockName   = []byte("startblock")
+	recentBlocksName = []byte("recentblocks")
 
 	// Account related key names (account bucket).
 	acctNumAcctsName = []byte("numaccts")
@@ -744,6 +752,7 @@ func (mtx *managerTx) putAddress(addressID []byte, row *dbAddressRow) error {
 		str := fmt.Sprintf("failed to store address %x", addressID)
 		return managerError(ErrDatabase, str, err)
 	}
+
 	return nil
 }
 
@@ -780,7 +789,7 @@ func (mtx *managerTx) PutChainedAddress(addressID []byte, account uint32,
 	}
 
 	// Increment the appropriate next index depending on whether the branch
-	// internal of external.
+	// is internal or external.
 	nextExternalIndex := arow.nextExternalIndex
 	nextInternalIndex := arow.nextInternalIndex
 	if branch == internalBranch {
@@ -844,6 +853,50 @@ func (mtx *managerTx) ExistsAddress(addressID []byte) bool {
 
 	addrHash := fastsha256.Sum256(addressID)
 	return bucket.Get(addrHash[:]) != nil
+}
+
+// FetchAllAddresses loads information about all addresses from the database.
+// The returned value is a slice of address rows for each specific address type.
+// The caller should use type assertions to ascertain the types.
+func (mtx *managerTx) FetchAllAddresses() ([]interface{}, error) {
+	bucket := (*bolt.Tx)(mtx).Bucket(addrBucketName)
+
+	var addrs []interface{}
+	cursor := bucket.Cursor()
+	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		// Skip buckets.
+		if v == nil {
+			continue
+		}
+
+		// Deserialize the address row first to determine the field
+		// values.
+		row, err := deserializeAddressRow(k, v)
+		if err != nil {
+			return nil, err
+		}
+
+		var addrRow interface{}
+		switch row.addrType {
+		case adtChain:
+			addrRow, err = deserializeChainedAddress(k, row)
+		case adtImport:
+			addrRow, err = deserializeImportedAddress(k, row)
+		case adtScript:
+			addrRow, err = deserializeScriptAddress(k, row)
+		default:
+			str := fmt.Sprintf("unsupported address type '%d'",
+				row.addrType)
+			return nil, managerError(ErrDatabase, str, nil)
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		addrs = append(addrs, addrRow)
+	}
+
+	return addrs, nil
 }
 
 // DeletePrivateKeys removes all private key material from the database.
@@ -961,6 +1014,146 @@ func (mtx *managerTx) DeletePrivateKeys() error {
 	return nil
 }
 
+// FetchSyncedTo loads the block stamp the manager is synced to from the
+// database.
+func (mtx *managerTx) FetchSyncedTo() (*BlockStamp, error) {
+	bucket := (*bolt.Tx)(mtx).Bucket(syncBucketName)
+
+	// The serialized synced to format is:
+	//   <blockheight><blockhash>
+	//
+	// 4 bytes block height + 32 bytes hash length
+	buf := bucket.Get(syncedToName)
+	if len(buf) != 36 {
+		str := "malformed sync information stored in database"
+		return nil, managerError(ErrDatabase, str, nil)
+	}
+
+	var bs BlockStamp
+	bs.Height = int32(binary.LittleEndian.Uint32(buf[0:4]))
+	copy(bs.Hash[:], buf[4:36])
+	return &bs, nil
+}
+
+// PutSyncedTo stores the provided synced to blockstamp to the database.
+func (mtx *managerTx) PutSyncedTo(bs *BlockStamp) error {
+	bucket := (*bolt.Tx)(mtx).Bucket(syncBucketName)
+
+	// The serialized synced to format is:
+	//   <blockheight><blockhash>
+	//
+	// 4 bytes block height + 32 bytes hash length
+	buf := make([]byte, 36)
+	binary.LittleEndian.PutUint32(buf[0:4], uint32(bs.Height))
+	copy(buf[4:36], bs.Hash[0:32])
+
+	err := bucket.Put(syncedToName, buf)
+	if err != nil {
+		str := fmt.Sprintf("failed to store sync information %v", bs.Hash)
+		return managerError(ErrDatabase, str, err)
+	}
+	return nil
+}
+
+// FetchStartBlock loads the start block stamp for the manager from the
+// database.
+func (mtx *managerTx) FetchStartBlock() (*BlockStamp, error) {
+	bucket := (*bolt.Tx)(mtx).Bucket(syncBucketName)
+
+	// The serialized start block format is:
+	//   <blockheight><blockhash>
+	//
+	// 4 bytes block height + 32 bytes hash length
+	buf := bucket.Get(startBlockName)
+	if len(buf) != 36 {
+		str := "malformed start block stored in database"
+		return nil, managerError(ErrDatabase, str, nil)
+	}
+
+	var bs BlockStamp
+	bs.Height = int32(binary.LittleEndian.Uint32(buf[0:4]))
+	copy(bs.Hash[:], buf[4:36])
+	return &bs, nil
+}
+
+// PutStartBlock stores the provided start block stamp to the database.
+func (mtx *managerTx) PutStartBlock(bs *BlockStamp) error {
+	bucket := (*bolt.Tx)(mtx).Bucket(syncBucketName)
+
+	// The serialized start block format is:
+	//   <blockheight><blockhash>
+	//
+	// 4 bytes block height + 32 bytes hash length
+	buf := make([]byte, 36)
+	binary.LittleEndian.PutUint32(buf[0:4], uint32(bs.Height))
+	copy(buf[4:36], bs.Hash[0:32])
+
+	err := bucket.Put(startBlockName, buf)
+	if err != nil {
+		str := fmt.Sprintf("failed to store start block %v", bs.Hash)
+		return managerError(ErrDatabase, str, err)
+	}
+	return nil
+}
+
+// FetchStartBlock loads the start block stamp for the manager from the
+// database.
+func (mtx *managerTx) FetchRecentBlocks() (int32, []btcwire.ShaHash, error) {
+	bucket := (*bolt.Tx)(mtx).Bucket(syncBucketName)
+
+	// The serialized recent blocks format is:
+	//   <blockheight><numhashes><blockhashes>
+	//
+	// 4 bytes recent block height + 4 bytes number of hashes + raw hashes
+	// at 32 bytes each.
+
+	// Given the above, the length of the entry must be at a minimum
+	// the constant value sizes.
+	buf := bucket.Get(recentBlocksName)
+	if len(buf) < 8 {
+		str := "malformed recent blocks stored in database"
+		return 0, nil, managerError(ErrDatabase, str, nil)
+	}
+
+	recentHeight := int32(binary.LittleEndian.Uint32(buf[0:4]))
+	numHashes := binary.LittleEndian.Uint32(buf[4:8])
+	recentHashes := make([]btcwire.ShaHash, numHashes)
+	offset := 8
+	for i := uint32(0); i < numHashes; i++ {
+		copy(recentHashes[i][:], buf[offset:offset+32])
+		offset += 32
+	}
+
+	return recentHeight, recentHashes, nil
+}
+
+// PutStartBlock stores the provided start block stamp to the database.
+func (mtx *managerTx) PutRecentBlocks(recentHeight int32, recentHashes []btcwire.ShaHash) error {
+	bucket := (*bolt.Tx)(mtx).Bucket(syncBucketName)
+
+	// The serialized recent blocks format is:
+	//   <blockheight><numhashes><blockhashes>
+	//
+	// 4 bytes recent block height + 4 bytes number of hashes + raw hashes
+	// at 32 bytes each.
+	numHashes := uint32(len(recentHashes))
+	buf := make([]byte, 8+(numHashes*32))
+	binary.LittleEndian.PutUint32(buf[0:4], uint32(recentHeight))
+	binary.LittleEndian.PutUint32(buf[4:8], numHashes)
+	offset := 8
+	for i := uint32(0); i < numHashes; i++ {
+		copy(buf[offset:offset+32], recentHashes[i][:])
+		offset += 32
+	}
+
+	err := bucket.Put(recentBlocksName, buf)
+	if err != nil {
+		str := "failed to store recent blocks"
+		return managerError(ErrDatabase, str, err)
+	}
+	return nil
+}
+
 // managerDB provides transactional facilities to read and write the address
 // manager data to a bolt database.
 type managerDB struct {
@@ -1044,6 +1237,30 @@ func (db *managerDB) CopyDB(newDbPath string) error {
 	return nil
 }
 
+// WriteTo writes the entire database to the provided writer.  A reader
+// transaction is maintained during the copy so it is safe to continue using the
+// database while a copy is in progress.
+func (db *managerDB) WriteTo(w io.Writer) error {
+	err := db.db.View(func(tx *bolt.Tx) error {
+		if err := tx.Copy(w); err != nil {
+			str := "failed to copy database"
+			return managerError(ErrDatabase, str, err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		// Ensure the returned error is a ManagerError.
+		if _, ok := err.(ManagerError); !ok {
+			str := "failed during database copy"
+			return managerError(ErrDatabase, str, err)
+		}
+		return err
+	}
+
+	return nil
+}
+
 // openOrCreateDB opens the database at the provided path or creates and
 // initializes it if it does not already exist.  It also provides facilities to
 // upgrade the database to newer versions.
@@ -1082,11 +1299,17 @@ func openOrCreateDB(dbPath string) (*managerDB, error) {
 			return managerError(ErrDatabase, str, err)
 		}
 
+		_, err = tx.CreateBucketIfNotExists(syncBucketName)
+		if err != nil {
+			str := "failed to create sync bucket"
+			return managerError(ErrDatabase, str, err)
+		}
+
 		// Save the most recent database version if it isn't already
 		// there, otherwise keep track of it for potential upgrades.
 		verBytes := mainBucket.Get(dbVersionName)
 		if verBytes == nil {
-			version = lastestDbVersion
+			version = LatestDbVersion
 
 			var buf [4]byte
 			binary.LittleEndian.PutUint32(buf[:], version)
@@ -1121,7 +1344,7 @@ func openOrCreateDB(dbPath string) (*managerDB, error) {
 	}
 
 	// Upgrade the database as needed.
-	if version < lastestDbVersion {
+	if version < LatestDbVersion {
 		// No upgrades yet.
 	}
 

@@ -77,9 +77,6 @@ type ManagedAddress interface {
 
 	// Compressed returns true if the backing address is compressed.
 	Compressed() bool
-
-	// SyncStatus returns the current synced state of an address.
-	SyncStatus() SyncStatus
 }
 
 // ManagedPubKeyAddress extends ManagedAddress and additionally provides the
@@ -117,18 +114,16 @@ type ManagedScriptAddress interface {
 // managedAddress represents a public key address.  It also may or may not have
 // the private key associated with the public key.
 type managedAddress struct {
-	manager           *Manager
-	account           uint32
-	address           *btcutil.AddressPubKeyHash
-	imported          bool
-	internal          bool
-	compressed        bool
-	pubKey            *btcec.PublicKey
-	syncStatus        SyncStatus
-	partialSyncHeight int32 // only used when syncStatus is not SSFull
-	privKeyEncrypted  []byte
-	privKeyCT         []byte // non-nil if unlocked
-	privKeyMutex      sync.Mutex
+	manager          *Manager
+	account          uint32
+	address          *btcutil.AddressPubKeyHash
+	imported         bool
+	internal         bool
+	compressed       bool
+	pubKey           *btcec.PublicKey
+	privKeyEncrypted []byte
+	privKeyCT        []byte // non-nil if unlocked
+	privKeyMutex     sync.Mutex
 }
 
 // Enforce mangedAddress satisfies the ManagedPubKeyAddress interface.
@@ -213,13 +208,6 @@ func (a *managedAddress) Internal() bool {
 // This is part of the ManagedAddress interface implementation.
 func (a *managedAddress) Compressed() bool {
 	return a.compressed
-}
-
-// TODO(davec): Comment
-//
-// This is part of the ManagedAddress interface implementation.
-func (a *managedAddress) SyncStatus() SyncStatus {
-	return a.syncStatus
 }
 
 // PubKey returns the public key associated with the address.
@@ -307,16 +295,15 @@ func newManagedAddressWithoutPrivKey(m *Manager, account uint32, pubKey *btcec.P
 	}
 
 	return &managedAddress{
-		manager:           m,
-		address:           address,
-		account:           account,
-		imported:          false,
-		internal:          false,
-		compressed:        compressed,
-		pubKey:            pubKey,
-		partialSyncHeight: 0,
-		privKeyEncrypted:  nil,
-		privKeyCT:         nil,
+		manager:          m,
+		address:          address,
+		account:          account,
+		imported:         false,
+		internal:         false,
+		compressed:       compressed,
+		pubKey:           pubKey,
+		privKeyEncrypted: nil,
+		privKeyCT:        nil,
 	}, nil
 }
 
@@ -478,14 +465,6 @@ func (a *scriptAddress) Internal() bool {
 // This is part of the ManagedAddress interface implementation.
 func (a *scriptAddress) Compressed() bool {
 	return false
-}
-
-// TODO(davec): Comment
-//
-// This is part of the ManagedAddress interface implementation.
-func (a *scriptAddress) SyncStatus() SyncStatus {
-	// TODO(davec): Finish
-	return SSFull
 }
 
 // Script returns the script associated with the address.

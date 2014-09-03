@@ -135,6 +135,13 @@ stored as it is needed to redeem the transaction.  This can be useful for a
 variety of scenarios, however the most common use is currently multi-signature
 transactions.
 
+Syncing
+
+The address manager also supports storing and retrieving a block hash and height
+which the manager is known to have all addresses synced through.  The manager
+itself does not have any notion of which addresses are synced or not.  It only
+provides the storage as a convenience for the caller.
+
 Network
 
 The address manager must be associated with a given network in order to provide
