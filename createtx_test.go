@@ -38,52 +38,17 @@ func Test_addOutputs(t *testing.T) {
 	}
 }
 
-func TestSelectInputs(t *testing.T) {
-	credit := newTxCredit(t, recvTx)
-	eligible := []txstore.Credit{credit}
-
-	// The requested amount+fee is small enough so selectInputs() should return
-	// just the first item.
-	selected, amount, err := selectInputs(eligible, 1e4, 1)
-
-	if err != nil {
-		t.Fatal("Unexpected error: ", err)
-	}
-	wantAmount := btcutil.Amount(recvTx.MsgTx().TxOut[0].Value)
-	if amount != wantAmount {
-		t.Errorf("Unexpected amount; got %s, want %s ", amount, wantAmount)
-	}
-	if len(selected) != 1 {
-		t.Fatalf("Unexpected number of selected inputs; got %d, want 1", len(selected))
-	}
-	if selected[0] != credit {
-		t.Errorf("Unexpected selected input; got %v, want %v", selected[0], credit)
-	}
-}
-
-func TestSelectInputsInsufficientFunds(t *testing.T) {
-	eligible := []txstore.Credit{newTxCredit(t, recvTx)}
-
-	_, _, err := selectInputs(eligible, 1e7, 1)
-
-	if err == nil {
-		t.Error("Expected InsufficientFunds, got no error")
-	} else if _, ok := err.(InsufficientFunds); !ok {
-		t.Errorf("Unexpected error, got %v, want InsufficientFunds", err)
-	}
-}
-
 func TestCreateTx(t *testing.T) {
 	cfg = &config{DisallowFree: false}
 	outputs := map[string]btcutil.Amount{outAddr1.String(): 10, outAddr2.String(): 1}
 	eligible := []txstore.Credit{newTxCredit(t, recvTx)}
 	bs := &keystore.BlockStamp{Height: 11111}
-	var TstChangeAddress = func(bs *keystore.BlockStamp) (btcutil.Address, error) {
+	var tstChangeAddress = func(bs *keystore.BlockStamp) (btcutil.Address, error) {
 		return changeAddr, nil
 	}
 
 	tx, err := createTx(
-		eligible, outputs, bs, defaultFeeIncrement, TstChangeAddress, TstAddInputs)
+		eligible, outputs, bs, defaultFeeIncrement, tstChangeAddress, tstAddInput)
 
 	if err != nil {
 		t.Error(err)
@@ -117,6 +82,25 @@ func TestCreateTx(t *testing.T) {
 	}
 }
 
+func TestCreateTxInsufficientFunds(t *testing.T) {
+	cfg = &config{DisallowFree: false}
+	outputs := map[string]btcutil.Amount{outAddr1.String(): 10, outAddr2.String(): 1e9}
+	eligible := []txstore.Credit{newTxCredit(t, recvTx)}
+	bs := &keystore.BlockStamp{Height: 11111}
+	var tstChangeAddress = func(bs *keystore.BlockStamp) (btcutil.Address, error) {
+		return changeAddr, nil
+	}
+
+	_, err := createTx(
+		eligible, outputs, bs, defaultFeeIncrement, tstChangeAddress, tstAddInput)
+
+	if err == nil {
+		t.Error("Expected InsufficientFunds, got no error")
+	} else if _, ok := err.(InsufficientFunds); !ok {
+		t.Errorf("Unexpected error, got %v, want InsufficientFunds", err)
+	}
+}
+
 func newTxCredit(t *testing.T, tx *btcutil.Tx) txstore.Credit {
 	s := txstore.New("/tmp/tx.bin")
 	r, err := s.InsertTx(tx, nil)
@@ -130,6 +114,6 @@ func newTxCredit(t *testing.T, tx *btcutil.Tx) txstore.Credit {
 	return credit
 }
 
-func TstAddInputs(msgtx *btcwire.MsgTx, inputs []txstore.Credit) error {
+func tstAddInput(msgtx *btcwire.MsgTx, inputs txstore.Credit) error {
 	return nil
 }
