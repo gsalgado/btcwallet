@@ -25,7 +25,7 @@ var (
 func Test_addOutputs(t *testing.T) {
 	msgtx := btcwire.NewMsgTx()
 	pairs := map[string]btcutil.Amount{outAddr1.String(): 10, outAddr2.String(): 1}
-	if err := addOutputs(msgtx, pairs); err != nil {
+	if _, err := addOutputs(msgtx, pairs); err != nil {
 		t.Fatal(err)
 	}
 	if len(msgtx.TxOut) != 2 {
@@ -46,12 +46,16 @@ func TestCreateTx(t *testing.T) {
 	var tstChangeAddress = func(bs *keystore.BlockStamp) (btcutil.Address, error) {
 		return changeAddr, nil
 	}
+	keys, err := keystore.New("/tmp/keys.bin", "Default acccount", []byte{0, 1},
+		activeNet.Params, bs)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	tx, err := createTx(
-		eligible, outputs, bs, defaultFeeIncrement, tstChangeAddress, tstAddInput)
+	tx, err := createTx(eligible, outputs, bs, defaultFeeIncrement, keys, tstChangeAddress)
 
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	if tx.changeAddr.String() != changeAddr.String() {
 		t.Errorf("Unexpected change address; got %v, want %v",
@@ -91,8 +95,7 @@ func TestCreateTxInsufficientFunds(t *testing.T) {
 		return changeAddr, nil
 	}
 
-	_, err := createTx(
-		eligible, outputs, bs, defaultFeeIncrement, tstChangeAddress, tstAddInput)
+	_, err := createTx(eligible, outputs, bs, defaultFeeIncrement, nil, tstChangeAddress)
 
 	if err == nil {
 		t.Error("Expected InsufficientFunds, got no error")
@@ -112,8 +115,4 @@ func newTxCredit(t *testing.T, tx *btcutil.Tx) txstore.Credit {
 		t.Fatal(err)
 	}
 	return credit
-}
-
-func tstAddInput(msgtx *btcwire.MsgTx, inputs txstore.Credit) error {
-	return nil
 }
