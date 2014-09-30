@@ -134,7 +134,6 @@ func createTx(
 	changeAddress func(*keystore.BlockStamp) (btcutil.Address, error),
 	addInput func(*btcwire.MsgTx, txstore.Credit) error) (*CreatedTx, error) {
 
-	var err error
 	msgtx := btcwire.NewMsgTx()
 	var minAmount btcutil.Amount
 	for _, v := range outputs {
@@ -144,7 +143,7 @@ func createTx(
 		minAmount += v
 	}
 
-	if err = addOutputs(msgtx, outputs); err != nil {
+	if err := addOutputs(msgtx, outputs); err != nil {
 		return nil, err
 	}
 
@@ -158,7 +157,7 @@ func createTx(
 	totalAdded := btcutil.Amount(0)
 	for totalAdded < minAmount {
 		if len(eligible) == 0 {
-			return nil, InsufficientFunds{minAmount, totalAdded, 0}
+			return nil, InsufficientFunds{totalAdded, minAmount, 0}
 		}
 		input, err := addFirstElement(eligible, msgtx, addInput)
 		if err != nil {
@@ -175,7 +174,7 @@ func createTx(
 	minFee := minimumFee(feeIncrement, msgtx, inputs, bs.Height)
 	for totalAdded < minAmount+minFee {
 		if len(eligible) == 0 {
-			return nil, InsufficientFunds{minAmount, totalAdded, minFee}
+			return nil, InsufficientFunds{totalAdded, minAmount, minFee}
 		}
 		input, err := addFirstElement(eligible, msgtx, addInput)
 		if err != nil {
@@ -196,7 +195,7 @@ func createTx(
 	change := totalAdded - minAmount - minFee
 	if change > 0 {
 		// Get a new change address if one has not already been found.
-		changeAddr, err = changeAddress(bs)
+		changeAddr, err := changeAddress(bs)
 		if err != nil {
 			return nil, err
 		}
@@ -224,7 +223,7 @@ func createTx(
 
 			for totalAdded < minAmount+minFee {
 				if len(eligible) == 0 {
-					return nil, InsufficientFunds{minAmount, totalAdded, minFee}
+					return nil, InsufficientFunds{totalAdded, minAmount, minFee}
 				}
 				input, err := addFirstElement(eligible, msgtx, addInput)
 				if err != nil {
