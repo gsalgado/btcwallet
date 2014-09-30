@@ -15,12 +15,19 @@ import (
 )
 
 var (
-	recvSerializedTx, _ = hex.DecodeString("010000000114d9ff358894c486b4ae11c2a8cf7851b1df64c53d2e511278eff17c22fb7373000000008c493046022100995447baec31ee9f6d4ec0e05cb2a44f6b817a99d5f6de167d1c75354a946410022100c9ffc23b64d770b0e01e7ff4d25fbc2f1ca8091053078a247905c39fce3760b601410458b8e267add3c1e374cf40f1de02b59213a82e1d84c2b94096e22e2f09387009c96debe1d0bcb2356ffdcf65d2a83d4b34e72c62eccd8490dbf2110167783b2bffffffff0280969800000000001976a914479ed307831d0ac19ebc5f63de7d5f1a430ddb9d88ac38bfaa00000000001976a914dadf9e3484f28b385ddeaa6c575c0c0d18e9788a88ac00000000")
+	tx_                 = tx2
+	recvSerializedTx, _ = hex.DecodeString(tx_.hex)
 	recvTx, _           = btcutil.NewTxFromBytes(recvSerializedTx)
 	changeAddr, _       = btcutil.DecodeAddress("muqW4gcixv58tVbSKRC5q6CRKy8RmyLgZ5", activeNet.Params)
 	outAddr1, _         = btcutil.DecodeAddress("1MirQ9bwyQcGVJPwKUgapu5ouK2E2Ey4gX", activeNet.Params)
 	outAddr2, _         = btcutil.DecodeAddress("12MzCDwodF9G1e7jfwLXfR164RNtx4BRVG", activeNet.Params)
 )
+
+type tx struct {
+	hex     string
+	privKey string
+	address string
+}
 
 func Test_addOutputs(t *testing.T) {
 	msgtx := btcwire.NewMsgTx()
@@ -46,8 +53,21 @@ func TestCreateTx(t *testing.T) {
 	var tstChangeAddress = func(bs *keystore.BlockStamp) (btcutil.Address, error) {
 		return changeAddr, nil
 	}
+
+	// Create a new keystore and load tx.privKey into it.
 	keys, err := keystore.New("/tmp/keys.bin", "Default acccount", []byte{0, 1},
 		activeNet.Params, bs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wif, err := btcutil.DecodeWIF(tx_.privKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = keys.Unlock([]byte{0, 1}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = keys.ImportPrivateKey(wif, bs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,13 +124,32 @@ func TestCreateTxInsufficientFunds(t *testing.T) {
 	}
 }
 
+// This tx contains 2 outputs:
+// {0: 0.2597 (change, addr: mnPES3VZ2kT4VuMMhaCav4pv7aCRLTgRg6),
+//  1: 0.6 (not-change, addr: mnVHyDU3eNiD4i8tDT4hwqJLZJ7LDC8W6H)}
+// The privKey below is for the second output
+var tx1 = tx{
+	hex:     "010000000122dd6d2ac57a6dc85d7be36c482822d27462e97e0388a2dd7b5f78f006724afe000000006a47304402207ad18f796460cd1bd058c2f4981dc88f2f838fa98335d5c5e99f4c6a00bfe415022008aaae8a57ee5d082204e408003511527f432533dbc0ad70aad5fa2bd5280cfe012103df001c8b58ac42b6cbfc2223b8efaa7e9a1911e529bd2c8b7f90140079034e75ffffffff0250458c01000000001976a9144b53061f0c512efef66fe03304d1138dee9ecdcd88ac00879303000000001976a9144c7878fbf5ee97e0d469b7de6e5a191334a212b688ac00000000",
+	privKey: "cVaPBac5pYj9pjZ4jbHiTpiYRS1tJohM8TeGPAUcZaWrcSQxsbkT",
+	address: "mnVHyDU3eNiD4i8tDT4hwqJLZJ7LDC8W6H"}
+
+// This tx contains 2 outputs:
+// {0: 367.412 (change, addr: mgRETMuqiwxgqhHvGNvseGh5U5z3UrqTwg),
+//  1: 0.51 (not-change, addr: mmA8fMT3ueM4sg6SnoY5wEahdd3Yv5coxD)}
+// The privKey below is for the second output
+var tx2 = tx{
+	hex:     "0100000001b103b03ef9a54318a14019b94ada9996934ea1cedd6847be15824f908c88f3fa000000006b483045022100afe7d9e26dd2efea67082d006e80be8c50b8654c767b079543d282e37df6460a02202a71780dd2b5c5bdaee77b30c938538fd1c6af3e4cd6cc1a1f35c190c1e23cab012102ac4bcfe048eaa6589bbbe69fb8453729ed83f3206c8458ded17105d6610fd54fffffffff028038f28d080000001976a91409e31ebe8cc3f22b62dd2897b2b58b93ac4ff82788acc0320a03000000001976a9143de0ac733acad7fa3072344543943e0ef854ab8f88ac00000000",
+	privKey: "cRD6HSRzK3ePra3gXp14V9USLECjdH3HDtydfqrnziDHtANvEtVA",
+	address: "mmA8fMT3ueM4sg6SnoY5wEahdd3Yv5coxD"}
+
 func newTxCredit(t *testing.T, tx *btcutil.Tx) txstore.Credit {
 	s := txstore.New("/tmp/tx.bin")
 	r, err := s.InsertTx(tx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	credit, err := r.AddCredit(0, false)
+	// XXX: The 1 here means the second output in tx1/tx2 above.
+	credit, err := r.AddCredit(1, false)
 	if err != nil {
 		t.Fatal(err)
 	}

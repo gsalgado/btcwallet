@@ -373,6 +373,12 @@ func validateMsgTx(msgtx *btcwire.MsgTx, inputs []txstore.Credit) error {
 		flags |= btcscript.ScriptBip16
 	}
 	for i, txin := range msgtx.TxIn {
+		// XXX: For debugging purposes.
+		disbuf, err := btcscript.DisasmString(inputs[i].TxOut().PkScript)
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println(disbuf)
 		engine, err := btcscript.NewScript(
 			txin.SignatureScript, inputs[i].TxOut().PkScript, i, msgtx, flags)
 		if err != nil {
