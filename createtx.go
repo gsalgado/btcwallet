@@ -337,7 +337,7 @@ func signMsgTx(msgtx *btcwire.MsgTx, outputs []txstore.Credit, store *keystore.S
 		// case where len(addrs) == 1.
 		_, addrs, _, _ := output.Addresses(activeNet.Params)
 		if len(addrs) != 1 {
-			return nil
+			continue
 		}
 		apkh, ok := addrs[0].(*btcutil.AddressPubKeyHash)
 		if !ok {
