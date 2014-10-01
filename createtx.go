@@ -196,13 +196,20 @@ func createTx(
 			// will be >= 0.
 			minFee = minimumFee(feeIncrement, msgtx, inputs, bs.Height)
 			change = totalAdded - minAmount - minFee
-			if change == 0 {
-				tmp := msgtx.TxOut[:changeIdx]
-				tmp = append(tmp, msgtx.TxOut[changeIdx+1:]...)
-				msgtx.TxOut = tmp
-				break
-			} else if change > 0 {
-				msgtx.TxOut[changeIdx].Value = int64(change)
+			if change >= 0 {
+				if change > 0 {
+					msgtx.TxOut[changeIdx].Value = int64(change)
+				} else {
+					tmp := msgtx.TxOut[:changeIdx]
+					tmp = append(tmp, msgtx.TxOut[changeIdx+1:]...)
+					msgtx.TxOut = tmp
+				}
+				// The changes to msgtx above can't cause its serialized size to
+				// increase, so we can safely assume the current fee is enough,
+				// sign the tx and move on.
+				if err = signMsgTx(msgtx, inputs, keys); err != nil {
+					return nil, err
+				}
 				break
 			}
 
@@ -257,7 +264,7 @@ func addChange(msgtx *btcwire.MsgTx, change btcutil.Amount, changeAddr btcutil.A
 func (w *Wallet) changeAddress(bs *keystore.BlockStamp) (btcutil.Address, error) {
 	changeAddr, err := w.KeyStore.ChangeAddress(bs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get next address: %s", err)
+		return nil, fmt.Errorf("failed to get change address: %s", err)
 	}
 	w.KeyStore.MarkDirty()
 	err = w.chainSvr.NotifyReceived([]btcutil.Address{changeAddr})
@@ -330,9 +337,15 @@ func (w *Wallet) findEligibleOutputs(minconf int, bs *keystore.BlockStamp) ([]tx
 }
 
 // signMsgTx sets the SignatureScript for every item in msgtx.TxIn.
+// It must be called every time a msgtx is changed.
 // Only P2PKH outputs are supported at this point.
-func signMsgTx(msgtx *btcwire.MsgTx, outputs []txstore.Credit, store *keystore.Store) error {
-	for i, output := range outputs {
+func signMsgTx(msgtx *btcwire.MsgTx, prevOutputs []txstore.Credit, store *keystore.Store) error {
+	if len(prevOutputs) != len(msgtx.TxIn) {
+		return fmt.Errorf(
+			"Number of prevOutputs (%d) does not match number of tx inputs (%d)",
+			len(prevOutputs), len(msgtx.TxIn))
+	}
+	for i, output := range prevOutputs {
 		// Errors don't matter here, as we only consider the
 		// case where len(addrs) == 1.
 		_, addrs, _, _ := output.Addresses(activeNet.Params)
@@ -366,21 +379,15 @@ func signMsgTx(msgtx *btcwire.MsgTx, outputs []txstore.Credit, store *keystore.S
 	return nil
 }
 
-func validateMsgTx(msgtx *btcwire.MsgTx, inputs []txstore.Credit) error {
+func validateMsgTx(msgtx *btcwire.MsgTx, prevOutputs []txstore.Credit) error {
 	flags := btcscript.ScriptCanonicalSignatures | btcscript.ScriptStrictMultiSig
 	bip16 := time.Now().After(btcscript.Bip16Activation)
 	if bip16 {
 		flags |= btcscript.ScriptBip16
 	}
 	for i, txin := range msgtx.TxIn {
-		// XXX: For debugging purposes.
-		disbuf, err := btcscript.DisasmString(inputs[i].TxOut().PkScript)
-		if err != nil {
-			fmt.Println(err)
-		}
-		fmt.Println(disbuf)
 		engine, err := btcscript.NewScript(
-			txin.SignatureScript, inputs[i].TxOut().PkScript, i, msgtx, flags)
+			txin.SignatureScript, prevOutputs[i].TxOut().PkScript, i, msgtx, flags)
 		if err != nil {
 			return fmt.Errorf("cannot create script engine: %s", err)
 		}
@@ -397,11 +404,11 @@ func validateMsgTx(msgtx *btcwire.MsgTx, inputs []txstore.Credit) error {
 // and none of the outputs contain a value less than 1 bitcent.
 // Otherwise, the fee will be calculated using incr, incrementing
 // the fee for each kilobyte of transaction.
-func minimumFee(incr btcutil.Amount, tx *btcwire.MsgTx, inputs []txstore.Credit, height int32) btcutil.Amount {
+func minimumFee(incr btcutil.Amount, tx *btcwire.MsgTx, prevOutputs []txstore.Credit, height int32) btcutil.Amount {
 	txLen := tx.SerializeSize()
 	allowFree := false
 	if !cfg.DisallowFree {
-		allowFree = allowNoFeeTx(height, inputs, txLen)
+		allowFree = allowNoFeeTx(height, prevOutputs, txLen)
 	}
 	fee := btcutil.Amount(int64(1+txLen/1000) * int64(incr))
 
