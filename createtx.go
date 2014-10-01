@@ -31,16 +31,16 @@ import (
 	"github.com/conformal/btcwire"
 )
 
-// InsufficientFunds represents an error where there are not enough
+// InsufficientFundsError represents an error where there are not enough
 // funds from unspent tx outputs for a wallet to create a transaction.
 // This may be caused by not enough inputs for all of the desired total
 // transaction output amount, or due to
-type InsufficientFunds struct {
+type InsufficientFundsError struct {
 	in, out, fee btcutil.Amount
 }
 
 // Error satisifies the builtin error interface.
-func (e InsufficientFunds) Error() string {
+func (e InsufficientFundsError) Error() string {
 	total := e.out + e.fee
 	if e.fee == 0 {
 		return fmt.Sprintf("insufficient funds: transaction requires "+
@@ -84,7 +84,7 @@ func (u ByAmount) Swap(i, j int)      { u[i], u[j] = u[j], u[i] }
 // specifies the minimum number of confirmations required before an
 // unspent output is eligible for spending. Leftover input funds not sent
 // to addr or as a fee for the miner are sent to a newly generated
-// address. ErrInsufficientFunds is returned if there are not enough
+// address. InsufficientFundsError is returned if there are not enough
 // eligible unspent outputs to create the transaction.
 func (w *Wallet) txToPairs(pairs map[string]btcutil.Amount, minconf int) (*CreatedTx, error) {
 
@@ -141,7 +141,7 @@ func createTx(
 	totalAdded := btcutil.Amount(0)
 	for totalAdded < minAmount {
 		if len(eligible) == 0 {
-			return nil, InsufficientFunds{totalAdded, minAmount, 0}
+			return nil, InsufficientFundsError{totalAdded, minAmount, 0}
 		}
 		input, eligible = eligible[0], eligible[1:]
 		inputs = append(inputs, input)
@@ -159,7 +159,7 @@ func createTx(
 	minFee := minimumFee(feeIncrement, msgtx, inputs, bs.Height)
 	for totalAdded < minAmount+minFee {
 		if len(eligible) == 0 {
-			return nil, InsufficientFunds{totalAdded, minAmount, minFee}
+			return nil, InsufficientFundsError{totalAdded, minAmount, minFee}
 		}
 		input, eligible = eligible[0], eligible[1:]
 		inputs = append(inputs, input)
@@ -215,7 +215,7 @@ func createTx(
 
 			for totalAdded < minAmount+minFee {
 				if len(eligible) == 0 {
-					return nil, InsufficientFunds{totalAdded, minAmount, minFee}
+					return nil, InsufficientFundsError{totalAdded, minAmount, minFee}
 				}
 				input, eligible = eligible[0], eligible[1:]
 				inputs = append(inputs, input)

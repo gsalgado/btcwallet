@@ -92,7 +92,7 @@ func TestCreateTx(t *testing.T) {
 	}
 }
 
-func TestCreateTxInsufficientFunds(t *testing.T) {
+func TestCreateTxInsufficientFundsError(t *testing.T) {
 	cfg = &config{DisallowFree: false}
 	outputs := map[string]btcutil.Amount{outAddr1.String(): 10, outAddr2.String(): 1e9}
 	eligible := []txstore.Credit{newTxCredit(t, txInfo.hex, 1)}
@@ -104,9 +104,9 @@ func TestCreateTxInsufficientFunds(t *testing.T) {
 	_, err := createTx(eligible, outputs, bs, defaultFeeIncrement, nil, tstChangeAddress)
 
 	if err == nil {
-		t.Error("Expected InsufficientFunds, got no error")
-	} else if _, ok := err.(InsufficientFunds); !ok {
-		t.Errorf("Unexpected error, got %v, want InsufficientFunds", err)
+		t.Error("Expected InsufficientFundsError, got no error")
+	} else if _, ok := err.(InsufficientFundsError); !ok {
+		t.Errorf("Unexpected error, got %v, want InsufficientFundsError", err)
 	}
 }
 
