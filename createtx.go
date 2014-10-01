@@ -31,6 +31,43 @@ import (
 	"github.com/conformal/btcwire"
 )
 
+const (
+	// All transactions have 4 bytes for version, 4 bytes of locktime,
+	// and 2 varints for the number of inputs and outputs.
+	txOverheadEstimate = 4 + 4 + 1 + 1
+
+	// A best case signature script to redeem a P2PKH output for a
+	// compressed pubkey has 70 bytes of the smallest possible DER signature
+	// (with no leading 0 bytes for R and S), 33 bytes of serialized pubkey,
+	// and data push opcodes for both.
+	sigScriptEstimate = 1 + 70 + 1 + 33
+
+	// A best case tx input serialization cost is 32 bytes of sha, 4 bytes
+	// of output index, 4 bytes of sequnce, and the estimated signature
+	// script size.
+	txInEstimate = 32 + 4 + 4 + sigScriptEstimate
+
+	// A P2PKH pkScript contains the following bytes:
+	//  - OP_DUP
+	//  - OP_HASH160
+	//  - OP_DATA_20 + 20 bytes of pubkey hash
+	//  - OP_EQUALVERIFY
+	//  - OP_CHECKSIG
+	pkScriptEstimate = 1 + 1 + 1 + 20 + 1 + 1
+
+	// A best case tx output serialization cost is 8 bytes of value, one
+	// byte of varint, and the pkScript size.
+	txOutEstimate = 8 + 1 + pkScriptEstimate
+)
+
+func estimateTxSize(numInputs, numOutputs int) int {
+	return txOverheadEstimate + txInEstimate*numInputs + txOutEstimate*numOutputs
+}
+
+func feeForSize(incr btcutil.Amount, sz int) btcutil.Amount {
+	return btcutil.Amount(1+sz/1000) * incr
+}
+
 // InsufficientFundsError represents an error where there are not enough
 // funds from unspent tx outputs for a wallet to create a transaction.
 // This may be caused by not enough inputs for all of the desired total
@@ -149,83 +186,75 @@ func createTx(
 		totalAdded += input.Amount()
 	}
 
-	if err = signMsgTx(msgtx, inputs, keys); err != nil {
-		return nil, err
-	}
+	// Get an initial fee estimate based on the number of selected inputs
+	// and added outputs, with no change.
+	txLen := estimateTxSize(len(inputs), len(msgtx.TxOut))
+	feeEst := minimumFee(feeIncrement, txLen, msgtx.TxOut, inputs, bs.Height)
 
-	// Now estimate a fee and make sure the total amount of our inputs
-	// is enough for it and all outputs. If necessary we add more inputs,
-	// but in that case we also need to recalculate the fee.
-	minFee := minimumFee(feeIncrement, msgtx, inputs, bs.Height)
-	for totalAdded < minAmount+minFee {
+	// Now make sure the sum amount of all our inputs is enough for the
+	// sum amount of all outputs plus the fee. If necessary we add more,
+	// inputs, but in that case we also need to recalculate the fee.
+	for totalAdded < minAmount+feeEst {
 		if len(eligible) == 0 {
-			return nil, InsufficientFundsError{totalAdded, minAmount, minFee}
+			return nil, InsufficientFundsError{totalAdded, minAmount, feeEst}
 		}
 		input, eligible = eligible[0], eligible[1:]
 		inputs = append(inputs, input)
 		msgtx.AddTxIn(btcwire.NewTxIn(input.OutPoint(), nil))
-		if err = signMsgTx(msgtx, inputs, keys); err != nil {
-			return nil, err
-		}
+		txLen += txInEstimate
 		totalAdded += input.Amount()
-		minFee = minimumFee(feeIncrement, msgtx, inputs, bs.Height)
+		feeEst = minimumFee(feeIncrement, txLen, msgtx.TxOut, inputs, bs.Height)
 	}
 
 	var changeAddr btcutil.Address
 	// changeIdx is -1 unless there's a change output.
 	changeIdx := -1
 
-	// Check if there are leftover unspent outputs, and return coins back to
-	// a new address we own.
-	change := totalAdded - minAmount - minFee
-	if change > 0 {
-		// Get a new change address if one has not already been found.
-		changeAddr, err = changeAddress(bs)
-		if err != nil {
+	for {
+		change := totalAdded - minAmount - feeEst
+		if change > 0 {
+			if changeAddr == nil {
+				changeAddr, err = changeAddress(bs)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			changeIdx, err = addChange(msgtx, change, changeAddr)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if err = signMsgTx(msgtx, inputs, keys); err != nil {
 			return nil, err
 		}
 
-		changeIdx, err = addChange(msgtx, change, changeAddr)
-		if err != nil {
-			return nil, err
+		if feeForSize(feeIncrement, msgtx.SerializeSize()) <= feeEst {
+			// The required fee for this size is less than or equal to what
+			// we guessed, so we're done.
+			break
 		}
 
-		for {
-			// This for loop will run at most 2 iterations because the inner
-			// loop ensures the totalAdded >= minAmount+minFee, so the change
-			// will be >= 0.
-			minFee = minimumFee(feeIncrement, msgtx, inputs, bs.Height)
-			change = totalAdded - minAmount - minFee
-			if change >= 0 {
-				if change > 0 {
-					msgtx.TxOut[changeIdx].Value = int64(change)
-				} else {
-					tmp := msgtx.TxOut[:changeIdx]
-					tmp = append(tmp, msgtx.TxOut[changeIdx+1:]...)
-					msgtx.TxOut = tmp
-				}
-				// The changes to msgtx above can't cause its serialized size to
-				// increase, so we can safely assume the current fee is enough,
-				// sign the tx and move on.
-				if err = signMsgTx(msgtx, inputs, keys); err != nil {
-					return nil, err
-				}
-				break
-			}
+		if change > 0 {
+			// Remove the change output since the next iteration will add
+			// it again (with a new amount) if necessary.
+			tmp := msgtx.TxOut[:changeIdx]
+			tmp = append(tmp, msgtx.TxOut[changeIdx+1:]...)
+			msgtx.TxOut = tmp
+		}
 
-			for totalAdded < minAmount+minFee {
-				if len(eligible) == 0 {
-					return nil, InsufficientFundsError{totalAdded, minAmount, minFee}
-				}
-				input, eligible = eligible[0], eligible[1:]
-				inputs = append(inputs, input)
-				msgtx.AddTxIn(btcwire.NewTxIn(input.OutPoint(), nil))
-				if err = signMsgTx(msgtx, inputs, keys); err != nil {
-					return nil, err
-				}
-				totalAdded += input.Amount()
-				minFee = minimumFee(feeIncrement, msgtx, inputs, bs.Height)
+		feeEst += feeIncrement
+		for totalAdded < minAmount+feeEst {
+			if len(eligible) == 0 {
+				return nil, InsufficientFundsError{totalAdded, minAmount, feeEst}
 			}
+			input, eligible = eligible[0], eligible[1:]
+			inputs = append(inputs, input)
+			msgtx.AddTxIn(btcwire.NewTxIn(input.OutPoint(), nil))
+			txLen += txInEstimate
+			totalAdded += input.Amount()
+			feeEst = minimumFee(feeIncrement, txLen, msgtx.TxOut, inputs, bs.Height)
 		}
 	}
 
@@ -398,26 +427,24 @@ func validateMsgTx(msgtx *btcwire.MsgTx, prevOutputs []txstore.Credit) error {
 	return nil
 }
 
-// minimumFee calculates the minimum fee required for a transaction.
-// If cfg.DisallowFree is false, a fee may be zero so long as the entire
-// transaction has a serialized length less than 1 kilobyte
-// and none of the outputs contain a value less than 1 bitcent.
-// Otherwise, the fee will be calculated using incr, incrementing
-// the fee for each kilobyte of transaction.
-func minimumFee(incr btcutil.Amount, tx *btcwire.MsgTx, prevOutputs []txstore.Credit, height int32) btcutil.Amount {
-	txLen := tx.SerializeSize()
+// minimumFee estimates the minimum fee required for a transaction.
+// If cfg.DisallowFree is false, a fee may be zero so long as txLen
+// s less than 1 kilobyte and none of the outputs contain a value
+// less than 1 bitcent. Otherwise, the fee will be calculated using
+// incr, incrementing the fee for each kilobyte of transaction.
+func minimumFee(incr btcutil.Amount, txLen int, outputs []*btcwire.TxOut, prevOutputs []txstore.Credit, height int32) btcutil.Amount {
 	allowFree := false
 	if !cfg.DisallowFree {
 		allowFree = allowNoFeeTx(height, prevOutputs, txLen)
 	}
-	fee := btcutil.Amount(int64(1+txLen/1000) * int64(incr))
+	fee := feeForSize(incr, txLen)
 
 	if allowFree && txLen < 1000 {
 		fee = 0
 	}
 
 	if fee < incr {
-		for _, txOut := range tx.TxOut {
+		for _, txOut := range outputs {
 			if txOut.Value < btcutil.SatoshiPerBitcent {
 				return incr
 			}
