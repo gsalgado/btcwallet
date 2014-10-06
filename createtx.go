@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/conformal/btcchain"
+	"github.com/conformal/btcec"
 	"github.com/conformal/btcscript"
 	"github.com/conformal/btcutil"
 	"github.com/conformal/btcwallet/keystore"
@@ -382,29 +383,86 @@ func signMsgTx(msgtx *btcwire.MsgTx, prevOutputs []txstore.Credit, store *keysto
 		if len(addrs) != 1 {
 			continue
 		}
-		apkh, ok := addrs[0].(*btcutil.AddressPubKeyHash)
-		if !ok {
-			return UnsupportedTransactionType
-		}
 
-		ai, err := store.Address(apkh)
+		ai, err := store.Address(addrs[0])
 		if err != nil {
 			return fmt.Errorf("cannot get address info: %v", err)
 		}
 
-		pka := ai.(keystore.PubKeyAddress)
-		privkey, err := pka.PrivKey()
+		pkScript := output.TxOut().PkScript
+		switch ai.(type) {
+		case keystore.PubKeyAddress:
+			pka := ai.(keystore.PubKeyAddress)
+			privkey, err := pka.PrivKey()
+			if err != nil {
+				return fmt.Errorf("cannot get private key: %v", err)
+			}
+
+			sigscript, err := btcscript.SignatureScript(
+				msgtx, i, pkScript, btcscript.SigHashAll, privkey, ai.Compressed())
+			if err != nil {
+				return fmt.Errorf("cannot create sigscript: %s", err)
+			}
+			msgtx.TxIn[i].SignatureScript = sigscript
+		case keystore.ScriptAddress:
+			return signMultiSigTxOut(msgtx, i, pkScript, store)
+		}
+	}
+
+	return nil
+}
+
+// XXX: Most of this is copied from rcpserver.SignRawTransaction.
+func signMultiSigTxOut(msgTx *btcwire.MsgTx, idx int, pkScript []byte, store *keystore.Store) error {
+	getKey := btcscript.KeyClosure(func(addr btcutil.Address) (*btcec.PrivateKey, bool, error) {
+		// XXX: This callback ends up being passed an AddressPubKey as addr, but in the
+		// keystore we only have the pubkey hashes, so we need to get their
+		// AddressPubKeyHash equivalent.
+		pkaddr, ok := addr.(*btcutil.AddressPubKey)
+		if !ok {
+			return nil, false, errors.New("address is not a pubkey address")
+		}
+		address, err := store.Address(pkaddr.AddressPubKeyHash())
 		if err != nil {
-			return fmt.Errorf("cannot get private key: %v", err)
+			return nil, false, err
 		}
 
-		sigscript, err := btcscript.SignatureScript(
-			msgtx, i, output.TxOut().PkScript, btcscript.SigHashAll, privkey, ai.Compressed())
-		if err != nil {
-			return fmt.Errorf("cannot create sigscript: %s", err)
+		pka, ok := address.(keystore.PubKeyAddress)
+		if !ok {
+			return nil, false, errors.New("address is not a pubkey address")
 		}
-		msgtx.TxIn[i].SignatureScript = sigscript
+
+		key, err := pka.PrivKey()
+		if err != nil {
+			return nil, false, err
+		}
+
+		return key, pka.Compressed(), nil
+	})
+
+	getScript := btcscript.ScriptClosure(func(addr btcutil.Address) ([]byte, error) {
+		address, err := store.Address(addr)
+		if err != nil {
+			return nil, err
+		}
+		sa, ok := address.(keystore.ScriptAddress)
+		if !ok {
+			return nil, errors.New("address is not a script address")
+		}
+		return sa.Script(), nil
+	})
+
+	txIn := msgTx.TxIn[idx]
+
+	// XXX: For now we assume all privkeys are in the store so we'll never
+	// have a partially-signed txout.
+	script, err := btcscript.SignTxOutput(activeNet.Params,
+		msgTx, idx, pkScript, btcscript.SigHashAll, getKey,
+		getScript, txIn.SignatureScript)
+	if err != nil {
+		return err
 	}
+	txIn.SignatureScript = script
 
 	return nil
 }

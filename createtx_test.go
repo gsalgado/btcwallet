@@ -35,6 +35,20 @@ var txInfo = struct {
 		"cSosEHx1freK7B1B6QicPcrH1h5VqReSHew6ZYhv6ntiUJRhowRc",
 		"cR9ApAZ3FLtRMfqRBEr3niD9Mmmvfh3V8Uh56qfJ5b4bFH8ibDkA"}}
 
+var multisigTxInfo = struct {
+	hex      string
+	amount   btcutil.Amount
+	privKeys []string
+}{
+	hex:    "010000000197ceffed2e5b5faadabc204b4d98d18f5ff303c8d4efbaf6de9c6f6a39c03a0a010000006b4830450221009d32f7e597eed52e3f26561d3c3b75a5e2c4211440f5e7108d6ba87ad5e47022022050fc202fb00c1b7dddc371b3c08ef81a6924387248f8ecb7336fd48033a79f0701210294e93643f85d749741a4db518e4461b6e61813fa76cb43269c600f90d0d06b26ffffffff0220692803000000001976a9140ff58b59692548074b6bce8d9c7ac2352b0669e288ac404b4c000000000017a9145161bb04a428afa06544daa8ccaa6fe6cee348fb8700000000",
+	amount: btcutil.Amount(5e6),
+	privKeys: []string{
+		"cSYUVdPL6pkabu7Fxp4PaKqYjJFz2Aopw5ygunFbek9HAimLYxp4",
+		"cVnNzZm3DiwkN1Ghs4W8cwcJC9f6TynCCcqzYt8n1c4hwjN2PfTw",
+		"cUgo8PrKj7NzttKRMKwgF3ahXNrLA253pqjWkPGS7Z9iZcKT8EKG",
+		"cSosEHx1freK7B1B6QicPcrH1h5VqReSHew6ZYhv6ntiUJRhowRc",
+		"cR9ApAZ3FLtRMfqRBEr3niD9Mmmvfh3V8Uh56qfJ5b4bFH8ibDkA"}}
+
 var (
 	outAddr1 = "1MirQ9bwyQcGVJPwKUgapu5ouK2E2Ey4gX"
 	outAddr2 = "12MzCDwodF9G1e7jfwLXfR164RNtx4BRVG"
@@ -122,6 +136,41 @@ func TestCreateTxInsufficientFundsError(t *testing.T) {
 		t.Error("Expected InsufficientFundsError, got no error")
 	} else if _, ok := err.(InsufficientFundsError); !ok {
 		t.Errorf("Unexpected error, got %v, want InsufficientFundsError", err)
+	}
+}
+
+func TestCreateTxP2SH(t *testing.T) {
+	cfg = &config{DisallowFree: false}
+	bs := &keystore.BlockStamp{Height: 11111}
+	keys := newKeyStore(t, multisigTxInfo.privKeys, bs)
+	changeAddr, _ := btcutil.DecodeAddress("muqW4gcixv58tVbSKRC5q6CRKy8RmyLgZ5", activeNet.Params)
+	var tstChangeAddress = func(bs *keystore.BlockStamp) (btcutil.Address, error) {
+		return changeAddr, nil
+	}
+
+	pubkey1, _ := btcutil.DecodeAddress("02b8737d91f41c0f65b0bcd0908378475a69d9e3e908b9f1a128a8e67553b2d6ac", activeNet.Params)
+	pubkey2, _ := btcutil.DecodeAddress("02579799092a520c9fe30b6a7b8e980a7110828c3f18713ae637ead892202f2328", activeNet.Params)
+	pubkey3, _ := btcutil.DecodeAddress("033b94b22dc3522fe3e02e06baaa37c91b89b5393abbc3258ddf74e8952bcd8852", activeNet.Params)
+	pubkey4, _ := btcutil.DecodeAddress("03f7237b02746eb4910d5111e86212a21e6bcaac553779c1019bd46ce95529bd06", activeNet.Params)
+	pubkey5, _ := btcutil.DecodeAddress("02d4f32872314be793e94ca5049f559a17af2508fe92b4e4d00325c2bc1293e4f0", activeNet.Params)
+	pubkeys := make([]*btcutil.AddressPubKey, 5)
+	for i, key := range []btcutil.Address{pubkey1, pubkey2, pubkey3, pubkey4, pubkey5} {
+		pubkeys[i] = key.(*btcutil.AddressPubKey)
+	}
+	script, err := btcscript.MultiSigScript(pubkeys, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = keys.ImportScript(script, bs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	eligible := eligibleInputsFromTx(t, multisigTxInfo.hex, []uint32{1})
+	outputs := map[string]btcutil.Amount{outAddr1: 4e6}
+	_, err = createTx(eligible, outputs, bs, defaultFeeIncrement, keys, tstChangeAddress)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
