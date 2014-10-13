@@ -39,8 +39,9 @@ const (
 	// A best case signature script to redeem a P2PKH output for a
 	// compressed pubkey has 70 bytes of the smallest possible DER signature
 	// (with no leading 0 bytes for R and S), 33 bytes of serialized pubkey,
-	// and data push opcodes for both.
-	sigScriptEstimate = 1 + 70 + 1 + 33
+	// and data push opcodes for both, plus one byte for the hash type flag
+	// appended to the end of the signature.
+	sigScriptEstimate = 1 + 70 + 1 + 33 + 1
 
 	// A best case tx input serialization cost is 32 bytes of sha, 4 bytes
 	// of output index, 4 bytes of sequnce, and the estimated signature
