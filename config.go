@@ -25,22 +25,23 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/legacy/keystore"
 	"github.com/btcsuite/btcwire"
 	flags "github.com/btcsuite/go-flags"
 )
 
 const (
-	defaultCAFilename       = "btcd.cert"
-	defaultConfigFilename   = "btcwallet.conf"
-	defaultBtcNet           = btcwire.TestNet3
-	defaultLogLevel         = "info"
-	defaultLogDirname       = "logs"
-	defaultLogFilename      = "btcwallet.log"
-	defaultDisallowFree     = false
-	defaultRPCMaxClients    = 10
-	defaultRPCMaxWebsockets = 25
-	addrMgrName             = "addrmgr.bin"
-	addrMgrWatchingOnlyName = "addrmgrwo.bin"
+	defaultCAFilename        = "btcd.cert"
+	defaultConfigFilename    = "btcwallet.conf"
+	defaultBtcNet            = btcwire.TestNet3
+	defaultLogLevel          = "info"
+	defaultLogDirname        = "logs"
+	defaultLogFilename       = "btcwallet.log"
+	defaultDisallowFree      = false
+	defaultRPCMaxClients     = 10
+	defaultRPCMaxWebsockets  = 25
+	walletDbName             = "wallet.db"
+	walletDbWatchingOnlyName = "wowallet.db"
 )
 
 var (
@@ -56,7 +57,7 @@ var (
 
 type config struct {
 	ShowVersion      bool     `short:"V" long:"version" description:"Display version information and exit"`
-	Create           bool     `long:"create" description:"Create initial wallet"`
+	Create           bool     `long:"create" description:"Create the wallet if it does not exist"`
 	CAFile           string   `long:"cafile" description:"File containing root certificates to authenticate a TLS connections with btcd"`
 	RPCConnect       string   `short:"c" long:"rpcconnect" description:"Hostname/IP and port of btcd RPC server to connect to (default localhost:18334, mainnet: localhost:8334, simnet: localhost:18556)"`
 	DebugLevel       string   `short:"d" long:"debuglevel" description:"Logging level {trace, debug, info, warn, error, critical}"`
@@ -246,7 +247,7 @@ func loadConfig() (*config, []string, error) {
 		ConfigFile:       defaultConfigFile,
 		DataDir:          defaultDataDir,
 		LogDir:           defaultLogDir,
-		WalletPass:       walletPubPassphrase,
+		WalletPass:       defaultPubPassphrase,
 		RPCKey:           defaultRPCKeyFile,
 		RPCCert:          defaultRPCCertFile,
 		DisallowFree:     defaultDisallowFree,
@@ -367,11 +368,11 @@ func loadConfig() (*config, []string, error) {
 
 	// Ensure the wallet exists or create it when the create flag is set.
 	netDir := networkDir(cfg.DataDir, activeNet.Params)
-	mgrPath := filepath.Join(netDir, addrMgrName)
+	dbPath := filepath.Join(netDir, walletDbName)
 	if cfg.Create {
 		// Error if the create flag is set and the wallet already
 		// exists.
-		if fileExists(mgrPath) {
+		if fileExists(dbPath) {
 			err := fmt.Errorf("The wallet already exists.")
 			fmt.Fprintln(os.Stderr, err)
 			return nil, nil, err
@@ -384,7 +385,7 @@ func loadConfig() (*config, []string, error) {
 		}
 
 		// Perform the initial wallet creation wizard.
-		if err := createWallet(mgrPath, &cfg); err != nil {
+		if err := createWallet(&cfg); err != nil {
 			fmt.Fprintln(os.Stderr, "Unable to create wallet:", err)
 			return nil, nil, err
 		}
@@ -392,9 +393,16 @@ func loadConfig() (*config, []string, error) {
 		// Created successfully, so exit now with success.
 		os.Exit(0)
 
-	} else if !fileExists(mgrPath) {
-		err := fmt.Errorf("The wallet does not exist.  Run with the " +
-			"--create option to initialize and create it.")
+	} else if !fileExists(dbPath) {
+		var err error
+		keystorePath := filepath.Join(netDir, keystore.Filename)
+		if !fileExists(keystorePath) {
+			err = fmt.Errorf("The wallet does not exist.  Run with the " +
+				"--create option to initialize and create it.")
+		} else {
+			err = fmt.Errorf("The wallet is in legacy format.  Run with the " +
+				"--create option to import it.")
+		}
 		fmt.Fprintln(os.Stderr, err)
 		return nil, nil, err
 	}

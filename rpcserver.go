@@ -169,22 +169,14 @@ func (c *websocketClient) send(b []byte) error {
 // address manager being locked.
 func isManagerLockedError(err error) bool {
 	merr, ok := err.(waddrmgr.ManagerError)
-	if !ok {
-		return false
-	}
-
-	return merr.ErrorCode == waddrmgr.ErrLocked
+	return ok && merr.ErrorCode == waddrmgr.ErrLocked
 }
 
 // isManagerWrongPassphraseError returns whether or not the passed error is due
 // to the address manager being provided with an invalid passprhase.
 func isManagerWrongPassphraseError(err error) bool {
 	merr, ok := err.(waddrmgr.ManagerError)
-	if !ok {
-		return false
-	}
-
-	return merr.ErrorCode == waddrmgr.ErrWrongPassphrase
+	return ok && merr.ErrorCode == waddrmgr.ErrWrongPassphrase
 }
 
 // isManagerDuplicateError returns whether or not the passed error is due to a
@@ -1409,11 +1401,11 @@ var rpcHandlers = map[string]requestHandler{
 	"setaccount":    Unsupported,
 
 	// Extensions to the reference client JSON-RPC API
+	"exportwatchingwallet": ExportWatchingWallet,
 	// This was an extension but the reference implementation added it as
 	// well, but with a different API (no account parameter).  It's listed
 	// here because it hasn't been update to use the reference
 	// implemenation's API.
-	"exportwatchingwallet":    ExportWatchingWallet,
 	"getunconfirmedbalance":   GetUnconfirmedBalance,
 	"listaddresstransactions": ListAddressTransactions,
 	"listalltransactions":     ListAllTransactions,
@@ -1661,11 +1653,12 @@ func DumpPrivKey(w *Wallet, chainSvr *chain.Client, icmd btcjson.Cmd) (interface
 // keys in a wallet, or an appropiate error if the wallet is locked.
 // TODO: finish this to match bitcoind by writing the dump to a file.
 func DumpWallet(w *Wallet, chainSvr *chain.Client, icmd btcjson.Cmd) (interface{}, error) {
-	if w.Manager.IsLocked() {
+	keys, err := w.DumpPrivKeys()
+	if isManagerLockedError(err) {
 		return nil, btcjson.ErrWalletUnlockNeeded
 	}
 
-	return w.DumpPrivKeys()
+	return keys, err
 }
 
 // ExportWatchingWallet handles an exportwatchingwallet request by exporting
@@ -1681,12 +1674,7 @@ func ExportWatchingWallet(w *Wallet, chainSvr *chain.Client, icmd btcjson.Cmd) (
 		return nil, err
 	}
 
-	wa, err := w.ExportWatchingWallet()
-	if err != nil {
-		return nil, err
-	}
-
-	return wa.exportBase64()
+	return w.ExportWatchingWallet()
 }
 
 // GetAddressesByAccount handles a getaddressesbyaccount request by returning
@@ -1743,7 +1731,9 @@ func GetInfo(w *Wallet, chainSvr *chain.Client, icmd btcjson.Cmd) (interface{}, 
 		return nil, err
 	}
 
-	info.WalletVersion = int32(waddrmgr.LatestDbVersion)
+	// TODO(davec): This should probably have a database version as opposed
+	// to using the manager version.
+	info.WalletVersion = int32(waddrmgr.LatestMgrVersion)
 	info.Balance = bal.ToUnit(btcutil.AmountBTC)
 	// Keypool times are not tracked. set to current time.
 	info.KeypoolOldest = time.Now().Unix()
@@ -2828,9 +2818,14 @@ func ValidateAddress(w *Wallet, chainSvr *chain.Client, icmd btcjson.Cmd) (inter
 	result.IsValid = true
 
 	ainfo, err := w.Manager.Address(addr)
+	if managerErr, ok := err.(waddrmgr.ManagerError); ok {
+		if managerErr.ErrorCode == waddrmgr.ErrAddressNotFound {
+			// No additional information available about the address.
+			return result, nil
+		}
+	}
 	if err != nil {
-		// No additional information available about the address.
-		return result, nil
+		return nil, err
 	}
 
 	// The address lookup was successful which means there is further

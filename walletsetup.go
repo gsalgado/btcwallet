@@ -21,10 +21,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/walletdb"
+	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 )
 
 // promptConsoleList prompts the user with the given prefix, list of valid
@@ -115,7 +118,7 @@ func promptConsolePass(reader *bufio.Reader, prefix string) (string, error) {
 // both.  Finally, all prompts are repeated until the user enters a valid
 // response.
 func promptConsolePublicPass(reader *bufio.Reader, privPass string, cfg *config) (string, error) {
-	pubPass := walletPubPassphrase
+	pubPass := defaultPubPassphrase
 	usePubPass, err := promptConsoleListBool(reader, "Do you want "+
 		"to add an additional layer of encryption for public "+
 		"data?", "no")
@@ -190,11 +193,11 @@ func promptConsoleSeed(reader *bufio.Reader) ([]byte, error) {
 
 		fmt.Println("Your wallet generation seed is:")
 		fmt.Printf("%x\n", seed)
-		fmt.Println("IMPORTANT: Keep the seed in a safe place as you " +
+		fmt.Println("IMPORTANT: Keep the seed in a safe place as you\n" +
 			"will NOT be able to restore your wallet without it.")
-		fmt.Println("Please keep in mind that anyone who has access " +
-			"to the seed can also restore your wallet thereby " +
-			"giving them access to all your funds, so it is " +
+		fmt.Println("Please keep in mind that anyone who has access\n" +
+			"to the seed can also restore your wallet thereby\n" +
+			"giving them access to all your funds, so it is\n" +
 			"imperative that you keep it in a secure location.")
 
 		for {
@@ -240,7 +243,7 @@ func promptConsoleSeed(reader *bufio.Reader) ([]byte, error) {
 // createWallet prompts the user for information needed to generate a new wallet
 // and generates the wallet accordingly.  The new wallet will reside at the
 // provided path.
-func createWallet(mgrPath string, cfg *config) error {
+func createWallet(cfg *config) error {
 	// Start by prompting for the private passphrase.
 	reader := bufio.NewReader(os.Stdin)
 	privPass, err := promptConsolePass(reader, "Enter the private passphrase "+
@@ -266,13 +269,28 @@ func createWallet(mgrPath string, cfg *config) error {
 	}
 
 	// Create the wallet.
+	netDir := networkDir(cfg.DataDir, activeNet.Params)
+	dbPath := filepath.Join(netDir, walletDbName)
 	fmt.Println("Creating the wallet...")
-	wallet, err := waddrmgr.Create(mgrPath, seed, []byte(pubPass),
+
+	// Create the wallet database backed by bolt db.
+	db, err := walletdb.Create("bdb", dbPath)
+	if err != nil {
+		return err
+	}
+
+	// Create the address manager.
+	namespace, err := db.Namespace(waddrmgrNamespaceKey)
+	if err != nil {
+		return err
+	}
+	manager, err := waddrmgr.Create(namespace, seed, []byte(pubPass),
 		[]byte(privPass), activeNet.Params, nil)
 	if err != nil {
 		return err
 	}
-	wallet.Close()
+
+	manager.Close()
 	fmt.Println("The wallet has been created successfully.")
 	return nil
 }
