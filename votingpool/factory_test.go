@@ -60,7 +60,7 @@ func createDecoratedTx(t *testing.T, pool *Pool, store *txstore.Store, inputAmou
 	for i, amount := range outputAmounts {
 		request := TstNewOutputRequest(
 			t, uint32(i), "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", btcutil.Amount(amount), net)
-		tx.addTxOut(&WithdrawalOutput{request: request}, request.pkScript)
+		tx.addTxOut(&WithdrawalOutput{request: request}, btcutil.Amount(amount))
 	}
 	return tx
 }

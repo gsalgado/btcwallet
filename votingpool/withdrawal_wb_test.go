@@ -68,16 +68,71 @@ func TestOutputSplittingNotEnoughInputs(t *testing.T) {
 	}
 
 	// The first output should've been left untouched.
-	if tx.outputs[0].Amount() != output1Amount {
+	if tx.outputs[0].amount != output1Amount {
 		t.Fatalf("Wrong amount for first tx output; got %v, want %v",
-			tx.outputs[0].Amount(), output1Amount)
+			tx.outputs[0].amount, output1Amount)
 	}
 
-	splitRequest := w.pendingOutputs[0]
 	// The last output should have had its amount updated to whatever we had
 	// left after satisfying all previous outputs.
 	newAmount := tx.inputTotal() - output1Amount - tx.calculateFee()
-	checkLastOutputWasSplit(t, w, tx, splitRequest, output2Amount, newAmount)
+	checkLastOutputWasSplit(t, w, tx, output2Amount, newAmount)
+}
+
+func TestOutputSplittingOversizeTx(t *testing.T) {
+	tearDown, pool, store := TstCreatePoolAndTxStore(t)
+	defer tearDown()
+
+	requestAmount := btcutil.Amount(5)
+	bigInput := int64(3)
+	smallInput := int64(2)
+	request := TstNewOutputRequest(
+		t, 1, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", requestAmount, pool.Manager().Net())
+	seriesID, eligible := TstCreateCredits(t, pool, []int64{bigInput, smallInput}, store)
+	changeStart := newChangeAddress(t, pool, seriesID, 0)
+	w := newWithdrawal(0, []*OutputRequest{request}, eligible, changeStart)
+	w.newDecoratedTx = func() *decoratedTx {
+		tx := newDecoratedTx()
+		tx.calculateFee = TstConstantFee(0)
+		// Trigger an output split right after the second input is added.
+		tx.isTooBig = func() bool { return len(w.current.inputs) == 2 }
+		return tx
+	}
+	w.current = w.newDecoratedTx()
+
+	if err := w.fulfilOutputs(); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(w.transactions) != 2 {
+		t.Fatalf("Wrong number of finalized transactions; got %d, want 2", len(w.transactions))
+	}
+
+	tx1 := w.transactions[0]
+	if len(tx1.outputs) != 1 {
+		t.Fatalf("Wrong number of outputs on tx1; got %d, want 1", len(tx1.outputs))
+	}
+	if tx1.outputs[0].amount != btcutil.Amount(bigInput) {
+		t.Fatalf("Wrong amount for output in tx1; got %d, want %d", tx1.outputs[0].amount,
+			bigInput)
+	}
+
+	tx2 := w.transactions[1]
+	if len(tx2.outputs) != 1 {
+		t.Fatalf("Wrong number of outputs on tx2; got %d, want 1", len(tx2.outputs))
+	}
+	if tx2.outputs[0].amount != btcutil.Amount(smallInput) {
+		t.Fatalf("Wrong amount for output in tx2; got %d, want %d", tx2.outputs[0].amount,
+			smallInput)
+	}
+
+	if len(w.status.outputs) != 1 {
+		t.Fatalf("Wrong number of output statuses; got %d, want 1", len(w.status.outputs))
+	}
+	status := w.status.outputs[0].status
+	if status != "success" {
+		t.Fatalf("Wrong output status; got '%s', want 'success'", status)
+	}
 }
 
 func TestSplitLastOutputNoOutputs(t *testing.T) {
@@ -90,13 +145,6 @@ func TestSplitLastOutputNoOutputs(t *testing.T) {
 	err := w.splitLastOutput()
 
 	TstCheckError(t, "", err, ErrPreconditionNotMet)
-}
-
-func TestOutputSplittingOversizeTx(t *testing.T) {
-	// TODO:
-	// Somehow create a withdrawal where the isTooBig() check returns true after
-	// the first input of the first tx is added, causing the output to be split.
-	// Then check the WithdrawalStatus
 }
 
 func TestStoreTransactionsWithoutChangeOutput(t *testing.T) {
@@ -608,7 +656,7 @@ func TestPopOutput(t *testing.T) {
 			gotPoppedWithdrawalOutput, wantPoppedWithdrawalOutput)
 	}
 	// And that the remaining output is correct.
-	checkTxOutputs(t, tx, []*WithdrawalOutput{remainingWithdrawalOutput})
+	checkTxOutputs(t, tx, []*decoratedTxOut{remainingWithdrawalOutput})
 
 	// Make sure that the remaining output is really the right one.
 	if tx.outputs[0] != remainingWithdrawalOutput {
@@ -655,7 +703,7 @@ func TestRollBackLastOutputInsufficientOutputs(t *testing.T) {
 
 	output := &WithdrawalOutput{request: TstNewOutputRequest(
 		t, 1, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", btcutil.Amount(3), &btcnet.MainNetParams)}
-	tx.addTxOut(output, []byte{})
+	tx.addTxOut(output, output.request.amount)
 	_, _, err = tx.rollBackLastOutput()
 	TstCheckError(t, "", err, ErrPreconditionNotMet)
 }
@@ -708,16 +756,20 @@ func TestTriggerFirstTxTooBigAndRollback(t *testing.T) {
 	// First tx should have one output with 1 and one change output with 4
 	// satoshis.
 	firstTx := w.transactions[0]
+	amount := btcutil.Amount(1)
 	wOutput := TstNewWithdrawalOutput(outputs[0], "success",
-		[]OutBailmentOutpoint{OutBailmentOutpoint{index: 0, amount: 1}})
-	checkTxOutputs(t, firstTx, []*WithdrawalOutput{wOutput})
+		[]OutBailmentOutpoint{OutBailmentOutpoint{index: 0, amount: amount}})
+	checkTxOutputs(
+		t, firstTx, []*decoratedTxOut{&decoratedTxOut{output: wOutput, amount: amount}})
 	checkTxChangeAmount(t, firstTx, btcutil.Amount(4))
 
 	// Second tx should have one output with 2 and one changeoutput with 3 satoshis.
 	secondTx := w.transactions[1]
+	amount = btcutil.Amount(2)
 	wOutput = TstNewWithdrawalOutput(outputs[1], "success",
-		[]OutBailmentOutpoint{OutBailmentOutpoint{index: 0, amount: 2}})
-	checkTxOutputs(t, secondTx, []*WithdrawalOutput{wOutput})
+		[]OutBailmentOutpoint{OutBailmentOutpoint{index: 0, amount: amount}})
+	checkTxOutputs(
+		t, secondTx, []*decoratedTxOut{&decoratedTxOut{output: wOutput, amount: amount}})
 	checkTxChangeAmount(t, secondTx, btcutil.Amount(3))
 }
 
@@ -767,17 +819,21 @@ func TestTriggerSecondTxTooBigAndRollback(t *testing.T) {
 		t.Fatalf("Wrong number of finalized transactions; got %d, want 2", len(w.transactions))
 	}
 
-	// First tx should have one output with amount of 1 no change output.
+	// First tx should have one output with amount of 1 and no change output.
 	firstTx := w.transactions[0]
+	amount := btcutil.Amount(1)
 	wOutput := TstNewWithdrawalOutput(outputs[0], "success",
-		[]OutBailmentOutpoint{OutBailmentOutpoint{index: 0, amount: 1}})
-	checkTxOutputs(t, firstTx, []*WithdrawalOutput{wOutput})
+		[]OutBailmentOutpoint{OutBailmentOutpoint{index: 0, amount: amount}})
+	checkTxOutputs(
+		t, firstTx, []*decoratedTxOut{&decoratedTxOut{output: wOutput, amount: amount}})
 
 	// Second tx should have one output with amount of 2 and no change output.
 	secondTx := w.transactions[1]
+	amount = btcutil.Amount(2)
 	wOutput = TstNewWithdrawalOutput(outputs[1], "success",
-		[]OutBailmentOutpoint{OutBailmentOutpoint{index: 0, amount: 2}})
-	checkTxOutputs(t, secondTx, []*WithdrawalOutput{wOutput})
+		[]OutBailmentOutpoint{OutBailmentOutpoint{index: 0, amount: amount}})
+	checkTxOutputs(
+		t, secondTx, []*decoratedTxOut{&decoratedTxOut{output: wOutput, amount: amount}})
 }
 
 func TestToMsgTxNoInputsOrOutputsOrChange(t *testing.T) {
@@ -887,14 +943,17 @@ func checkNonEmptySigsForPrivKeys(t *testing.T, txSigs TxSigs, privKeys []*hdkey
 }
 
 // checkTxOutputs ensures that the tx.outputs match the given outputs.
-func checkTxOutputs(t *testing.T, tx *decoratedTx, outputs []*WithdrawalOutput) {
+func checkTxOutputs(t *testing.T, tx *decoratedTx, outputs []*decoratedTxOut) {
 	nOutputs := len(outputs)
 	if len(tx.outputs) != nOutputs {
 		t.Fatalf("Wrong number of outputs in tx; got %d, want %d", len(tx.outputs), nOutputs)
 	}
+	// XXX: This is horrible; this function takes a slice of decoratedTxOut but
+	// actually checks only their .output attributes against the .output of
+	// tx.outputs.
 	for i, output := range tx.outputs {
-		if !reflect.DeepEqual(output, outputs[i]) {
-			t.Fatalf("Unexpected output; got %#v, want %#v", output, outputs[i])
+		if !reflect.DeepEqual(output.output, outputs[i].output) {
+			t.Fatalf("Unexpected output; got %#v, want %#v", output.output, outputs[i].output)
 		}
 	}
 }
@@ -972,7 +1031,7 @@ func compareMsgTxAndDecoratedTxOutputs(t *testing.T, msgtx *btcwire.MsgTx, tx *d
 	}
 
 	for i, output := range tx.outputs {
-		outputRequest := output.request
+		outputRequest := output.request()
 		txOut := msgtx.TxOut[i]
 		if !bytes.Equal(txOut.PkScript, outputRequest.pkScript) {
 			t.Fatalf(
@@ -1019,10 +1078,11 @@ func newChangeAddress(t *testing.T, pool *Pool, seriesID uint32, idx Index) *Cha
 // origAmount - newAmount. It also checks that splitRequest is identical (except
 // for its amount) to the request of the last output in the tx.
 func checkLastOutputWasSplit(t *testing.T, w *withdrawal, tx *decoratedTx,
-	splitRequest *OutputRequest, origAmount, newAmount btcutil.Amount) {
+	origAmount, newAmount btcutil.Amount) {
+	splitRequest := w.pendingOutputs[0]
 	lastOutput := tx.outputs[len(tx.outputs)-1]
-	if lastOutput.Amount() != newAmount {
-		t.Fatalf("Wrong amount in last output; got %s, want %s", lastOutput.Amount(), newAmount)
+	if lastOutput.amount != newAmount {
+		t.Fatalf("Wrong amount in last output; got %s, want %s", lastOutput.amount, newAmount)
 	}
 
 	wantSplitAmount := origAmount - newAmount
@@ -1033,7 +1093,7 @@ func checkLastOutputWasSplit(t *testing.T, w *withdrawal, tx *decoratedTx,
 
 	// Check that the split request is identical (except for its amount) to the
 	// original one.
-	origRequest := lastOutput.request
+	origRequest := lastOutput.request()
 	if !bytes.Equal(origRequest.pkScript, splitRequest.pkScript) {
 		t.Fatalf("Wrong pkScript in split request; got %x, want %x", splitRequest.pkScript,
 			origRequest.pkScript)

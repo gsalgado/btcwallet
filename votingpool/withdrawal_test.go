@@ -45,8 +45,8 @@ func TestWithdrawal(t *testing.T) {
 	address1 := "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6"
 	address2 := "3PbExiaztsSYgh6zeMswC49hLUwhTQ86XG"
 	outputs := []*vp.OutputRequest{
-		vp.TstNewOutputRequest(t, 1, address1, btcutil.Amount(4e6), mgr.Net()),
-		vp.TstNewOutputRequest(t, 2, address2, btcutil.Amount(1e6), mgr.Net()),
+		vp.TstNewOutputRequest(t, 1, address1, 4e6, mgr.Net()),
+		vp.TstNewOutputRequest(t, 2, address2, 1e6, mgr.Net()),
 	}
 	changeStart, err := pool.ChangeAddress(def.SeriesID, 0)
 	if err != nil {
@@ -59,7 +59,7 @@ func TestWithdrawal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Check that all outputs were successfully fulfiled.
+	// Check that all outputs were successfully fulfilled.
 	checkWithdrawalOutputs(t, status, map[string]btcutil.Amount{address1: 4e6, address2: 1e6})
 
 	// XXX: The ntxid is deterministic so we hardcode it here, but if the test is changed
@@ -81,12 +81,12 @@ func TestWithdrawal(t *testing.T) {
 
 func checkWithdrawalOutputs(
 	t *testing.T, wStatus *vp.WithdrawalStatus, amounts map[string]btcutil.Amount) {
-	fulfiled := wStatus.Outputs()
-	if len(fulfiled) != 2 {
+	fulfilled := wStatus.Outputs()
+	if len(fulfilled) != 2 {
 		t.Fatalf("Unexpected number of outputs in WithdrawalStatus; got %d, want %d",
-			len(fulfiled), 2)
+			len(fulfilled), 2)
 	}
-	for i, output := range fulfiled {
+	for i, output := range fulfilled {
 		addr := output.Address()
 		amount, ok := amounts[addr]
 		if !ok {
