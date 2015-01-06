@@ -60,7 +60,7 @@ func createDecoratedTx(t *testing.T, pool *Pool, store *txstore.Store, inputAmou
 	for i, amount := range outputAmounts {
 		request := TstNewOutputRequest(
 			t, uint32(i), "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", btcutil.Amount(amount), net)
-		tx.addTxOut(&WithdrawalOutput{request: request}, btcutil.Amount(amount))
+		tx.addTxOut(request)
 	}
 	return tx
 }
@@ -324,7 +324,7 @@ func TstCreatePool(t *testing.T) (tearDownFunc func(), mgr *waddrmgr.Manager, po
 }
 
 func TstNewOutputRequest(t *testing.T, transaction uint32, address string, amount btcutil.Amount,
-	net *btcnet.Params) *OutputRequest {
+	net *btcnet.Params) OutputRequest {
 	addr, err := btcutil.DecodeAddress(address, net)
 	if err != nil {
 		t.Fatalf("Unable to decode address %s", address)
@@ -333,7 +333,7 @@ func TstNewOutputRequest(t *testing.T, transaction uint32, address string, amoun
 	if err != nil {
 		t.Fatalf("Unable to generate pkScript for %v", addr)
 	}
-	return &OutputRequest{
+	return OutputRequest{
 		pkScript:    pkScript,
 		address:     addr,
 		amount:      amount,
@@ -342,9 +342,9 @@ func TstNewOutputRequest(t *testing.T, transaction uint32, address string, amoun
 	}
 }
 
-func TstNewWithdrawalOutput(requests *OutputRequest, status string, outpoints []OutBailmentOutpoint) *WithdrawalOutput {
+func TstNewWithdrawalOutput(request OutputRequest, status string, outpoints []OutBailmentOutpoint) *WithdrawalOutput {
 	output := &WithdrawalOutput{
-		request:   requests,
+		request:   request,
 		status:    status,
 		outpoints: outpoints,
 	}

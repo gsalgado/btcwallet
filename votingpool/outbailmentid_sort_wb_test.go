@@ -25,13 +25,13 @@ import (
 // TestOutBailmentIDSort tests that the we can correctly sort a slice
 // of output requests by the hash of the outbailmentID.
 func TestOutBailmentIDSort(t *testing.T) {
-	or00 := &OutputRequest{cachedHash: []byte{0, 0}}
-	or01 := &OutputRequest{cachedHash: []byte{0, 1}}
-	or10 := &OutputRequest{cachedHash: []byte{1, 0}}
-	or11 := &OutputRequest{cachedHash: []byte{1, 1}}
+	or00 := OutputRequest{cachedHash: []byte{0, 0}}
+	or01 := OutputRequest{cachedHash: []byte{0, 1}}
+	or10 := OutputRequest{cachedHash: []byte{1, 0}}
+	or11 := OutputRequest{cachedHash: []byte{1, 1}}
 
-	want := []*OutputRequest{or00, or01, or10, or11}
-	random := []*OutputRequest{or11, or00, or10, or01}
+	want := []OutputRequest{or00, or01, or10, or11}
+	random := []OutputRequest{or11, or00, or10, or01}
 
 	sort.Sort(byOutBailmentID(random))
 

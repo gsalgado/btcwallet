@@ -161,16 +161,16 @@ type WithdrawalStatus struct {
 	nextInputStart  WithdrawalAddress
 	nextChangeStart ChangeAddress
 	fees            btcutil.Amount
-	outputs         []*WithdrawalOutput
+	outputs         map[string]*WithdrawalOutput
 }
 
-func (s *WithdrawalStatus) Outputs() []*WithdrawalOutput {
+func (s *WithdrawalStatus) Outputs() map[string]*WithdrawalOutput {
 	return s.outputs
 }
 
 // byAmount defines the methods needed to satisify sort.Interface to
 // sort a slice of OutputRequests by their amount.
-type byAmount []*OutputRequest
+type byAmount []OutputRequest
 
 func (u byAmount) Len() int           { return len(u) }
 func (u byAmount) Less(i, j int) bool { return u[i].amount < u[j].amount }
@@ -201,14 +201,17 @@ type OutputRequest struct {
 }
 
 // String makes OutputRequest satisfy the Stringer interface.
-func (o *OutputRequest) String() string {
-	return fmt.Sprintf("OutputRequest %s:%d to send %v to %s", o.server, o.transaction,
-		o.amount, o.address)
+func (o OutputRequest) String() string {
+	return fmt.Sprintf("OutputRequest %s to send %v to %s", o.outBailmentID(), o.amount, o.address)
+}
+
+func (o OutputRequest) outBailmentID() string {
+	return fmt.Sprintf("%s:%d", o.server, o.transaction)
 }
 
 // outBailmentIDHash returns a byte slice which is used when sorting
 // OutputRequests.
-func (o *OutputRequest) outBailmentIDHash() []byte {
+func (o OutputRequest) outBailmentIDHash() []byte {
 	if o.cachedHash != nil {
 		return o.cachedHash
 	}
@@ -223,7 +226,7 @@ func (o *OutputRequest) outBailmentIDHash() []byte {
 
 // WithdrawalOutput represents a possibly fulfilled OutputRequest.
 type WithdrawalOutput struct {
-	request *OutputRequest
+	request OutputRequest
 	status  string
 	// The outpoints that fulfill the OutputRequest. There will be more than one in case we
 	// need to split the request across multiple transactions.
@@ -289,7 +292,7 @@ type withdrawal struct {
 	status         *WithdrawalStatus
 	changeStart    *ChangeAddress
 	transactions   []*decoratedTx
-	pendingOutputs []*OutputRequest
+	pendingOutputs []OutputRequest
 	eligibleInputs []CreditInterface
 	current        *decoratedTx
 	// newDecoratedTx is a member of the structure so it can be replaced for
@@ -297,17 +300,16 @@ type withdrawal struct {
 	newDecoratedTx func() *decoratedTx
 }
 
+// decoratedTxOut wraps an OutputRequest and provides a separate amount field.
+// It is necessary because some requests may be partially fulfilled or split
+// across transactions.
 type decoratedTxOut struct {
-	output *WithdrawalOutput
-	amount btcutil.Amount
+	request OutputRequest
+	amount  btcutil.Amount
 }
 
 func (o *decoratedTxOut) pkScript() []byte {
-	return o.output.request.pkScript
-}
-
-func (o *decoratedTxOut) request() *OutputRequest {
-	return o.output.request
+	return o.request.pkScript
 }
 
 // A btcwire.MsgTx decorated with some supporting data structures needed throughout the
@@ -384,10 +386,9 @@ func newDecoratedTx() *decoratedTx {
 	return tx
 }
 
-func (d *decoratedTx) addTxOut(output *WithdrawalOutput, amount btcutil.Amount) uint32 {
-	log.Infof("Added output sending %s to %s", amount, output.Address())
-	d.outputs = append(d.outputs, &decoratedTxOut{output: output, amount: amount})
-	return uint32(len(d.outputs) - 1)
+func (d *decoratedTx) addTxOut(request OutputRequest) {
+	log.Infof("Added output sending %s to %s", request.amount, request.address)
+	d.outputs = append(d.outputs, &decoratedTxOut{request: request, amount: request.amount})
 }
 
 // popOutput will pop the last added output and return it.
@@ -462,14 +463,18 @@ func isTooBig(d *decoratedTx) bool {
 	return estimateSize(d) > 1000
 }
 
-func newWithdrawal(roundID uint32, outputs []*OutputRequest, inputs []CreditInterface,
+func newWithdrawal(roundID uint32, requests []OutputRequest, inputs []CreditInterface,
 	changeStart *ChangeAddress) *withdrawal {
+	outputs := make(map[string]*WithdrawalOutput, len(requests))
+	for _, request := range requests {
+		outputs[request.outBailmentID()] = &WithdrawalOutput{request: request}
+	}
 	return &withdrawal{
 		roundID:        roundID,
 		current:        newDecoratedTx(),
-		pendingOutputs: outputs,
+		pendingOutputs: requests,
 		eligibleInputs: inputs,
-		status:         &WithdrawalStatus{},
+		status:         &WithdrawalStatus{outputs: outputs},
 		changeStart:    changeStart,
 		newDecoratedTx: newDecoratedTx,
 	}
@@ -479,13 +484,12 @@ func newWithdrawal(roundID uint32, outputs []*OutputRequest, inputs []CreditInte
 // getEligibleInputs().
 func (vp *Pool) Withdrawal(
 	roundID uint32,
-	// XXX: Possibly rename outputs to requests.
-	outputs []*OutputRequest,
+	requests []OutputRequest,
 	inputs []CreditInterface,
 	changeStart *ChangeAddress,
 	txStore *txstore.Store,
 ) (*WithdrawalStatus, map[string]TxSigs, error) {
-	w := newWithdrawal(roundID, outputs, inputs, changeStart)
+	w := newWithdrawal(roundID, requests, inputs, changeStart)
 	if err := w.fulfilOutputs(); err != nil {
 		return nil, nil, err
 	}
@@ -556,22 +560,11 @@ func (w *withdrawal) fulfilNextOutput() error {
 	request := w.pendingOutputs[0]
 	w.pendingOutputs = w.pendingOutputs[1:]
 
-	var output *WithdrawalOutput
+	output := w.status.outputs[request.outBailmentID()]
 	// We start with an output status of success and if anything goes wrong it
 	// will be changed.
-	if request.isSplit {
-		// This is a split request, so we just update the status of the last
-		// entry in w.status.outputs and try to fulfill the missing amount.
-		log.Debug("Split request; updating status of last output to success")
-		output = w.status.outputs[len(w.status.outputs)-1]
-		output.status = "success"
-	} else {
-		log.Debug("Adding new entry to w.status.outputs")
-		output = &WithdrawalOutput{request: request, status: "success"}
-		w.status.outputs = append(w.status.outputs, output)
-	}
-
-	outputIndex := w.current.addTxOut(output, request.amount)
+	output.status = "success"
+	w.current.addTxOut(request)
 
 	if w.current.isTooBig() {
 		if err := w.handleOversizeTx(); err != nil {
@@ -603,11 +596,6 @@ func (w *withdrawal) fulfilNextOutput() error {
 		}
 	}
 
-	// The new outpoint won't have an ntxid because we can only get that after
-	// the tx is finalized.
-	// XXX: Consider moving this into finalizeCurrentTx().
-	outpoint := OutBailmentOutpoint{index: outputIndex, amount: request.amount}
-	output.addOutpoint(outpoint)
 	return nil
 }
 
@@ -621,7 +609,7 @@ func (w *withdrawal) handleOversizeTx() error {
 			return newError(ErrWithdrawalProcessing, "failed to rollback last output", err)
 		}
 		w.eligibleInputs = append(w.eligibleInputs, inputs...)
-		w.pendingOutputs = append(w.pendingOutputs, output.request())
+		w.pendingOutputs = append(w.pendingOutputs, output.request)
 	} else if len(w.current.outputs) == 1 {
 		log.Debug("Splitting last output because tx got too big")
 		lastInput := w.current.popInput()
@@ -661,11 +649,20 @@ func (w *withdrawal) finalizeCurrentTx() error {
 		}
 	}
 
+	ntxid := Ntxid(tx.toMsgTx())
+	for i, txOut := range tx.outputs {
+		outputStatus := w.status.outputs[txOut.request.outBailmentID()]
+		outputStatus.addOutpoint(
+			OutBailmentOutpoint{ntxid: ntxid, index: uint32(i), amount: txOut.amount})
+	}
+
+	// TODO: Iterate over w.status.outputs and check that entries with status==success
+	// have sum(outpoints)==request.amount
+
+	// TODO: Update the status of all partial entries in w.status.outputs to convey
+	// which series need to be thawed.
+
 	w.transactions = append(w.transactions, tx)
-
-	// TODO: Update the ntxid of all outpoints in every WithdrawalOutput entry
-	// fulfilled by this transaction
-
 	w.current = w.newDecoratedTx()
 	return nil
 }
@@ -681,19 +678,18 @@ func (w *withdrawal) maybeDropOutputs() {
 		inputAmount += input.Amount()
 	}
 	outputAmount := btcutil.Amount(0)
-	for _, output := range w.pendingOutputs {
-		outputAmount += output.amount
+	for _, request := range w.pendingOutputs {
+		outputAmount += request.amount
 	}
 	sort.Sort(sort.Reverse(byAmount(w.pendingOutputs)))
 	for inputAmount < outputAmount {
-		output := w.pendingOutputs[0]
+		request := w.pendingOutputs[0]
 		log.Infof("Not fulfilling request to send %v to %v; not enough credits.",
-			output.amount, output.address)
+			request.amount, request.address)
 		w.pendingOutputs = w.pendingOutputs[1:]
-		outputAmount -= output.amount
+		outputAmount -= request.amount
 		// XXX: Do not hardcode the status strings here, nor in tests.
-		w.status.outputs = append(
-			w.status.outputs, &WithdrawalOutput{request: output, status: "partial-"})
+		w.status.outputs[request.outBailmentID()].status = "partial-"
 	}
 }
 
@@ -749,18 +745,18 @@ func (w *withdrawal) splitLastOutput() error {
 
 	// Create a new OutputRequest with the amount being the difference between
 	// the original amount and what was left in the original output request.
-	request := output.request()
-	newRequest := &OutputRequest{
+	request := output.request
+	newRequest := OutputRequest{
 		isSplit:     true,
 		server:      request.server,
 		transaction: request.transaction,
 		address:     request.address,
 		pkScript:    request.pkScript,
 		amount:      origAmount - output.amount}
-	w.pendingOutputs = append([]*OutputRequest{newRequest}, w.pendingOutputs...)
+	w.pendingOutputs = append([]OutputRequest{newRequest}, w.pendingOutputs...)
 	log.Debugf("Created a new pending output request with amount %v", newRequest.amount)
 
-	w.status.outputs[len(w.status.outputs)-1].status = "partial-"
+	w.status.outputs[request.outBailmentID()].status = "partial-"
 	return nil
 }
 

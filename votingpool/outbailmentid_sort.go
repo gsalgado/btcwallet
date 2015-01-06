@@ -24,7 +24,7 @@ import (
 // byOutBailmentID defines the methods needed to satisify
 // sort.Interface to sort a slice of OutputRequests by
 // the value of outBailmentIDHash.
-type byOutBailmentID []*OutputRequest
+type byOutBailmentID []OutputRequest
 
 func (s byOutBailmentID) Len() int {
 	return len(s)

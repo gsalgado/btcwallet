@@ -40,7 +40,7 @@ func TestOutputSplittingNotEnoughInputs(t *testing.T) {
 	net := pool.Manager().Net()
 	output1Amount := btcutil.Amount(2)
 	output2Amount := btcutil.Amount(3)
-	requests := []*OutputRequest{
+	requests := []OutputRequest{
 		// These output requests will have the same server ID, so we know
 		// they'll be fulfilled in the order they're defined here, which is
 		// important for this test.
@@ -90,7 +90,7 @@ func TestOutputSplittingOversizeTx(t *testing.T) {
 		t, 1, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", requestAmount, pool.Manager().Net())
 	seriesID, eligible := TstCreateCredits(t, pool, []int64{bigInput, smallInput}, store)
 	changeStart := newChangeAddress(t, pool, seriesID, 0)
-	w := newWithdrawal(0, []*OutputRequest{request}, eligible, changeStart)
+	w := newWithdrawal(0, []OutputRequest{request}, eligible, changeStart)
 	w.newDecoratedTx = func() *decoratedTx {
 		tx := newDecoratedTx()
 		tx.calculateFee = TstConstantFee(0)
@@ -129,7 +129,7 @@ func TestOutputSplittingOversizeTx(t *testing.T) {
 	if len(w.status.outputs) != 1 {
 		t.Fatalf("Wrong number of output statuses; got %d, want 1", len(w.status.outputs))
 	}
-	status := w.status.outputs[0].status
+	status := w.status.outputs[request.outBailmentID()].status
 	if status != "success" {
 		t.Fatalf("Wrong output status; got '%s', want 'success'", status)
 	}
@@ -139,7 +139,7 @@ func TestSplitLastOutputNoOutputs(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	w := newWithdrawal(0, []*OutputRequest{}, []CreditInterface{}, nil)
+	w := newWithdrawal(0, []OutputRequest{}, []CreditInterface{}, nil)
 	w.current = createDecoratedTx(t, pool, store, []int64{}, []int64{})
 
 	err := w.splitLastOutput()
@@ -308,7 +308,7 @@ func TestWithdrawalTxOutputs(t *testing.T) {
 
 	// Create eligible inputs and the list of outputs we need to fulfil.
 	seriesID, eligible := TstCreateCredits(t, pool, []int64{2e6, 4e6}, store)
-	outputs := []*OutputRequest{
+	outputs := []OutputRequest{
 		TstNewOutputRequest(t, 1, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", 3e6, net),
 		TstNewOutputRequest(t, 2, "3PbExiaztsSYgh6zeMswC49hLUwhTQ86XG", 2e6, net),
 	}
@@ -344,15 +344,14 @@ func TestFulfilOutputsNoSatisfiableOutputs(t *testing.T) {
 	defer tearDown()
 
 	seriesID, eligible := TstCreateCredits(t, pool, []int64{1e6}, store)
-	outputs := []*OutputRequest{
-		TstNewOutputRequest(t, 1, "3Qt1EaKRD9g9FeL2DGkLLswhK1AKmmXFSe", btcutil.Amount(3e6),
-			pool.Manager().Net())}
+	request := TstNewOutputRequest(
+		t, 1, "3Qt1EaKRD9g9FeL2DGkLLswhK1AKmmXFSe", btcutil.Amount(3e6), pool.Manager().Net())
 	changeStart, err := pool.ChangeAddress(seriesID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	w := newWithdrawal(0, outputs, eligible, changeStart)
+	w := newWithdrawal(0, []OutputRequest{request}, eligible, changeStart)
 	if err := w.fulfilOutputs(); err != nil {
 		t.Fatal(err)
 	}
@@ -366,9 +365,9 @@ func TestFulfilOutputsNoSatisfiableOutputs(t *testing.T) {
 			len(w.status.outputs))
 	}
 
-	if w.status.outputs[0].status != "partial-" {
-		t.Fatalf("Unexpected status for requested outputs; got '%s', want 'partial-'",
-			w.status.outputs[0].status)
+	status := w.status.outputs[request.outBailmentID()].status
+	if status != "partial-" {
+		t.Fatalf("Unexpected status for requested outputs; got '%s', want 'partial-'", status)
 	}
 }
 
@@ -387,7 +386,7 @@ func TestFulfilOutputsNotEnoughCreditsForAllRequests(t *testing.T) {
 		t, 2, "3PbExiaztsSYgh6zeMswC49hLUwhTQ86XG", btcutil.Amount(2e6), net)
 	out3 := TstNewOutputRequest(
 		t, 3, "3Qt1EaKRD9g9FeL2DGkLLswhK1AKmmXFSe", btcutil.Amount(5e6), net)
-	outputs := []*OutputRequest{out1, out2, out3}
+	outputs := []OutputRequest{out1, out2, out3}
 	changeStart, err := pool.ChangeAddress(seriesID, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -405,7 +404,7 @@ func TestFulfilOutputsNotEnoughCreditsForAllRequests(t *testing.T) {
 	// We expect it to include outputs for requests 1 and 2, plus a change output, but
 	// output request #3 should not be there because we don't have enough credits.
 	change := inputAmount - (out1.amount + out2.amount + tx.calculateFee())
-	expectedOutputs := []*OutputRequest{out1, out2}
+	expectedOutputs := []OutputRequest{out1, out2}
 	sort.Sort(byOutBailmentID(expectedOutputs))
 	expectedOutputs = append(
 		expectedOutputs, TstNewOutputRequest(t, 4, changeStart.Addr().String(), change, net))
@@ -414,12 +413,13 @@ func TestFulfilOutputsNotEnoughCreditsForAllRequests(t *testing.T) {
 
 	// withdrawal.status should state that outputs 1 and 2 were successfully fulfilled,
 	// and that output 3 was not.
-	expectedStatuses := map[*OutputRequest]string{
-		out1: "success", out2: "success", out3: "partial-"}
+	expectedStatuses := map[string]string{
+		out1.outBailmentID(): "success", out2.outBailmentID(): "success",
+		out3.outBailmentID(): "partial-"}
 	for _, wOutput := range w.status.outputs {
-		if wOutput.status != expectedStatuses[wOutput.request] {
-			t.Fatalf("Unexpected status for %v; got '%s', want 'partial-'", wOutput.request,
-				wOutput.status)
+		if wOutput.status != expectedStatuses[wOutput.request.outBailmentID()] {
+			t.Fatalf("Unexpected status for %v; got '%s', want '%s'", wOutput.request,
+				wOutput.status, expectedStatuses[wOutput.request.outBailmentID()])
 		}
 	}
 }
@@ -703,7 +703,7 @@ func TestRollBackLastOutputInsufficientOutputs(t *testing.T) {
 
 	output := &WithdrawalOutput{request: TstNewOutputRequest(
 		t, 1, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", btcutil.Amount(3), &btcnet.MainNetParams)}
-	tx.addTxOut(output, output.request.amount)
+	tx.addTxOut(output.request)
 	_, _, err = tx.rollBackLastOutput()
 	TstCheckError(t, "", err, ErrPreconditionNotMet)
 }
@@ -721,7 +721,7 @@ func TestTriggerFirstTxTooBigAndRollback(t *testing.T) {
 	net := pool.Manager().Net()
 	// Create eligible inputs and the list of outputs we need to fulfil.
 	series, eligible := TstCreateCredits(t, pool, []int64{5, 5}, store)
-	outputs := []*OutputRequest{
+	requests := []OutputRequest{
 		// This is ordered by bailment ID
 		TstNewOutputRequest(t, 1, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", 1, net),
 		TstNewOutputRequest(t, 2, "3PbExiaztsSYgh6zeMswC49hLUwhTQ86XG", 2, net),
@@ -731,7 +731,7 @@ func TestTriggerFirstTxTooBigAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	w := newWithdrawal(0, outputs, eligible, changeStart)
+	w := newWithdrawal(0, requests, eligible, changeStart)
 	w.newDecoratedTx = func() *decoratedTx {
 		d := newDecoratedTx()
 		// Make a transaction too big if it contains more than one output.
@@ -756,20 +756,16 @@ func TestTriggerFirstTxTooBigAndRollback(t *testing.T) {
 	// First tx should have one output with 1 and one change output with 4
 	// satoshis.
 	firstTx := w.transactions[0]
-	amount := btcutil.Amount(1)
-	wOutput := TstNewWithdrawalOutput(outputs[0], "success",
-		[]OutBailmentOutpoint{OutBailmentOutpoint{index: 0, amount: amount}})
+	req1 := requests[0]
 	checkTxOutputs(
-		t, firstTx, []*decoratedTxOut{&decoratedTxOut{output: wOutput, amount: amount}})
+		t, firstTx, []*decoratedTxOut{&decoratedTxOut{request: req1, amount: req1.amount}})
 	checkTxChangeAmount(t, firstTx, btcutil.Amount(4))
 
 	// Second tx should have one output with 2 and one changeoutput with 3 satoshis.
 	secondTx := w.transactions[1]
-	amount = btcutil.Amount(2)
-	wOutput = TstNewWithdrawalOutput(outputs[1], "success",
-		[]OutBailmentOutpoint{OutBailmentOutpoint{index: 0, amount: amount}})
+	req2 := requests[1]
 	checkTxOutputs(
-		t, secondTx, []*decoratedTxOut{&decoratedTxOut{output: wOutput, amount: amount}})
+		t, secondTx, []*decoratedTxOut{&decoratedTxOut{request: req2, amount: req2.amount}})
 	checkTxChangeAmount(t, secondTx, btcutil.Amount(3))
 }
 
@@ -787,7 +783,7 @@ func TestTriggerSecondTxTooBigAndRollback(t *testing.T) {
 	net := pool.Manager().Net()
 	// Create eligible inputs and the list of outputs we need to fulfil.
 	series, eligible := TstCreateCredits(t, pool, []int64{1, 2}, store)
-	outputs := []*OutputRequest{
+	requests := []OutputRequest{
 		// This is ordered by bailment ID
 		TstNewOutputRequest(t, 1, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", 1, net),
 		TstNewOutputRequest(t, 2, "3PbExiaztsSYgh6zeMswC49hLUwhTQ86XG", 2, net),
@@ -797,7 +793,7 @@ func TestTriggerSecondTxTooBigAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	w := newWithdrawal(0, outputs, eligible, changeStart)
+	w := newWithdrawal(0, requests, eligible, changeStart)
 	w.newDecoratedTx = func() *decoratedTx {
 		d := newDecoratedTx()
 		// Make a transaction too big if it contains more than one input.
@@ -821,19 +817,15 @@ func TestTriggerSecondTxTooBigAndRollback(t *testing.T) {
 
 	// First tx should have one output with amount of 1 and no change output.
 	firstTx := w.transactions[0]
-	amount := btcutil.Amount(1)
-	wOutput := TstNewWithdrawalOutput(outputs[0], "success",
-		[]OutBailmentOutpoint{OutBailmentOutpoint{index: 0, amount: amount}})
+	req1 := requests[0]
 	checkTxOutputs(
-		t, firstTx, []*decoratedTxOut{&decoratedTxOut{output: wOutput, amount: amount}})
+		t, firstTx, []*decoratedTxOut{&decoratedTxOut{request: req1, amount: req1.amount}})
 
 	// Second tx should have one output with amount of 2 and no change output.
 	secondTx := w.transactions[1]
-	amount = btcutil.Amount(2)
-	wOutput = TstNewWithdrawalOutput(outputs[1], "success",
-		[]OutBailmentOutpoint{OutBailmentOutpoint{index: 0, amount: amount}})
+	req2 := requests[1]
 	checkTxOutputs(
-		t, secondTx, []*decoratedTxOut{&decoratedTxOut{output: wOutput, amount: amount}})
+		t, secondTx, []*decoratedTxOut{&decoratedTxOut{request: req2, amount: req2.amount}})
 }
 
 func TestToMsgTxNoInputsOrOutputsOrChange(t *testing.T) {
@@ -948,12 +940,9 @@ func checkTxOutputs(t *testing.T, tx *decoratedTx, outputs []*decoratedTxOut) {
 	if len(tx.outputs) != nOutputs {
 		t.Fatalf("Wrong number of outputs in tx; got %d, want %d", len(tx.outputs), nOutputs)
 	}
-	// XXX: This is horrible; this function takes a slice of decoratedTxOut but
-	// actually checks only their .output attributes against the .output of
-	// tx.outputs.
 	for i, output := range tx.outputs {
-		if !reflect.DeepEqual(output.output, outputs[i].output) {
-			t.Fatalf("Unexpected output; got %#v, want %#v", output.output, outputs[i].output)
+		if !reflect.DeepEqual(output, outputs[i]) {
+			t.Fatalf("Unexpected output; got %#v, want %#v", output, outputs[i])
 		}
 	}
 }
@@ -961,22 +950,22 @@ func checkTxOutputs(t *testing.T, tx *decoratedTx, outputs []*decoratedTxOut) {
 // checkMsgTxOutputs checks that the pkScript and amount of every output in the
 // given msgtx match the pkScript and amount of every item in the slice of
 // OutputRequests.
-func checkMsgTxOutputs(t *testing.T, msgtx *btcwire.MsgTx, outputs []*OutputRequest) {
-	nOutputs := len(outputs)
-	if len(msgtx.TxOut) != nOutputs {
-		t.Fatalf("Unexpected number of TxOuts; got %d, want %d", len(msgtx.TxOut), nOutputs)
+func checkMsgTxOutputs(t *testing.T, msgtx *btcwire.MsgTx, requests []OutputRequest) {
+	nRequests := len(requests)
+	if len(msgtx.TxOut) != nRequests {
+		t.Fatalf("Unexpected number of TxOuts; got %d, want %d", len(msgtx.TxOut), nRequests)
 	}
-	for i, output := range outputs {
+	for i, request := range requests {
 		txOut := msgtx.TxOut[i]
-		if !bytes.Equal(txOut.PkScript, output.pkScript) {
+		if !bytes.Equal(txOut.PkScript, request.pkScript) {
 			t.Fatalf(
-				"Unexpected pkScript for output %d; got %v, want %v", i, txOut.PkScript,
-				output.pkScript)
+				"Unexpected pkScript for request %d; got %v, want %v", i, txOut.PkScript,
+				request.pkScript)
 		}
 		gotAmount := btcutil.Amount(txOut.Value)
-		if gotAmount != output.amount {
+		if gotAmount != request.amount {
 			t.Fatalf(
-				"Unexpected amount for output %d; got %v, want %v", i, gotAmount, output.amount)
+				"Unexpected amount for request %d; got %v, want %v", i, gotAmount, request.amount)
 		}
 	}
 }
@@ -1031,7 +1020,7 @@ func compareMsgTxAndDecoratedTxOutputs(t *testing.T, msgtx *btcwire.MsgTx, tx *d
 	}
 
 	for i, output := range tx.outputs {
-		outputRequest := output.request()
+		outputRequest := output.request
 		txOut := msgtx.TxOut[i]
 		if !bytes.Equal(txOut.PkScript, outputRequest.pkScript) {
 			t.Fatalf(
@@ -1093,7 +1082,7 @@ func checkLastOutputWasSplit(t *testing.T, w *withdrawal, tx *decoratedTx,
 
 	// Check that the split request is identical (except for its amount) to the
 	// original one.
-	origRequest := lastOutput.request()
+	origRequest := lastOutput.request
 	if !bytes.Equal(origRequest.pkScript, splitRequest.pkScript) {
 		t.Fatalf("Wrong pkScript in split request; got %x, want %x", splitRequest.pkScript,
 			origRequest.pkScript)
@@ -1107,7 +1096,7 @@ func checkLastOutputWasSplit(t *testing.T, w *withdrawal, tx *decoratedTx,
 			origRequest.transaction)
 	}
 
-	status := w.status.outputs[len(w.status.outputs)-1].status
+	status := w.status.outputs[origRequest.outBailmentID()].status
 	if status != "partial-" {
 		t.Fatalf("Wrong output status; got '%s', want '%s'", status, "partial-")
 	}

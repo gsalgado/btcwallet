@@ -44,7 +44,7 @@ func TestWithdrawal(t *testing.T) {
 	eligible := vp.TstCreateCreditsOnSeries(t, pool, def.SeriesID, []int64{5e6, 4e6}, store)
 	address1 := "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6"
 	address2 := "3PbExiaztsSYgh6zeMswC49hLUwhTQ86XG"
-	outputs := []*vp.OutputRequest{
+	requests := []vp.OutputRequest{
 		vp.TstNewOutputRequest(t, 1, address1, 4e6, mgr.Net()),
 		vp.TstNewOutputRequest(t, 2, address2, 1e6, mgr.Net()),
 	}
@@ -54,7 +54,7 @@ func TestWithdrawal(t *testing.T) {
 	}
 
 	// Withdrawal() should fulfil the desired outputs spending from the given inputs.
-	status, sigs, err := pool.Withdrawal(0, outputs, eligible, changeStart, store)
+	status, sigs, err := pool.Withdrawal(0, requests, eligible, changeStart, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,27 +86,29 @@ func checkWithdrawalOutputs(
 		t.Fatalf("Unexpected number of outputs in WithdrawalStatus; got %d, want %d",
 			len(fulfilled), 2)
 	}
-	for i, output := range fulfilled {
+	for _, output := range fulfilled {
 		addr := output.Address()
 		amount, ok := amounts[addr]
 		if !ok {
 			t.Fatalf("Unexpected output addr: %s", addr)
 		}
 
-		if output.Status() != "success" {
+		status := output.Status()
+		if status != "success" {
 			t.Fatalf(
-				"Unexpected status for output %d; got '%s', want 'success'", i, output.Status())
+				"Unexpected status for output %v; got '%s', want 'success'", output, status)
 		}
 
 		outpoints := output.Outpoints()
 		if len(outpoints) != 1 {
 			t.Fatalf(
-				"Unexpected number of outpoints for output %d; got %d, want 1", i, len(outpoints))
+				"Unexpected number of outpoints for output %v; got %d, want 1", output,
+				len(outpoints))
 		}
 
 		gotAmount := outpoints[0].Amount()
 		if gotAmount != amount {
-			t.Fatalf("Unexpected amount for output %d; got %v, want %v", i, gotAmount, amount)
+			t.Fatalf("Unexpected amount for output %v; got %v, want %v", output, gotAmount, amount)
 		}
 	}
 }
