@@ -540,13 +540,31 @@ func getTxOutIndex(txout *btcwire.TxOut, msgtx *btcwire.MsgTx) (uint32, error) {
 	return 0, newError(ErrTxOutNotFound, "", nil)
 }
 
+func (w *withdrawal) popRequest() OutputRequest {
+	request := w.pendingRequests[0]
+	w.pendingRequests = w.pendingRequests[1:]
+	return request
+}
+
+func (w *withdrawal) pushRequest(request OutputRequest) {
+	w.pendingRequests = append([]OutputRequest{request}, w.pendingRequests...)
+}
+
+func (w *withdrawal) popInput() CreditInterface {
+	input := w.eligibleInputs[0]
+	w.eligibleInputs = w.eligibleInputs[1:]
+	return input
+}
+
+func (w *withdrawal) pushInput(input CreditInterface) {
+	w.eligibleInputs = append([]CreditInterface{input}, w.eligibleInputs...)
+}
+
 // If this returns it means we have added an output and the necessary inputs to fulfil that
 // output plus the required fees. It also means the tx won't reach the size limit even
 // after we add a change output and sign all inputs.
 func (w *withdrawal) fulfillNextRequest() error {
-	request := w.pendingRequests[0]
-	w.pendingRequests = w.pendingRequests[1:]
-
+	request := w.popRequest()
 	output := w.status.outputs[request.outBailmentID()]
 	// We start with an output status of success and if anything goes wrong it
 	// will be changed.
@@ -566,9 +584,7 @@ func (w *withdrawal) fulfillNextRequest() error {
 			}
 			break
 		}
-		input := w.eligibleInputs[0]
-		w.eligibleInputs = w.eligibleInputs[1:]
-		w.current.addTxIn(input)
+		w.current.addTxIn(w.popInput())
 		fee = w.current.calculateFee()
 
 		if w.current.isTooBig() {
@@ -591,8 +607,7 @@ func (w *withdrawal) handleOversizeTx() error {
 		w.pendingRequests = append(w.pendingRequests, output.request)
 	} else if len(w.current.outputs) == 1 {
 		log.Debug("Splitting last output because tx got too big...")
-		lastInput := w.current.popInput()
-		w.eligibleInputs = append([]CreditInterface{lastInput}, w.eligibleInputs...)
+		w.pushInput(w.current.popInput())
 		if err := w.splitLastOutput(); err != nil {
 			return err
 		}
@@ -674,10 +689,9 @@ func (w *withdrawal) maybeDropRequests() {
 	}
 	sort.Sort(sort.Reverse(byAmount(w.pendingRequests)))
 	for inputAmount < outputAmount {
-		request := w.pendingRequests[0]
+		request := w.popRequest()
 		log.Infof("Not fulfilling request to send %v to %v; not enough credits.",
 			request.amount, request.address)
-		w.pendingRequests = w.pendingRequests[1:]
 		outputAmount -= request.amount
 		// XXX: Do not hardcode the status strings here, nor in tests.
 		w.status.outputs[request.outBailmentID()].status = "partial-"
@@ -743,7 +757,7 @@ func (w *withdrawal) splitLastOutput() error {
 		address:     request.address,
 		pkScript:    request.pkScript,
 		amount:      origAmount - output.amount}
-	w.pendingRequests = append([]OutputRequest{newRequest}, w.pendingRequests...)
+	w.pushRequest(newRequest)
 	log.Debugf("Created a new pending output request with amount %v", newRequest.amount)
 
 	w.status.outputs[request.outBailmentID()].status = "partial-"
