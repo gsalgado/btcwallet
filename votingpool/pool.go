@@ -179,8 +179,8 @@ func (vp *Pool) GetSeries(seriesID uint32) *SeriesData {
 }
 
 // Manager returns the waddrmgr.Manager used by this Pool.
-func (p *Pool) Manager() *waddrmgr.Manager {
-	return p.manager
+func (vp *Pool) Manager() *waddrmgr.Manager {
+	return vp.manager
 }
 
 // saveSeriesToDisk stores the given series ID and data in the database,
@@ -558,6 +558,89 @@ func (vp *Pool) DepositScript(seriesID uint32, branch Branch, index Index) ([]by
 	return script, nil
 }
 
+func (vp *Pool) ChangeAddress(seriesID uint32, index Index) (*ChangeAddress, error) {
+	// TODO: Ensure the given series is active.
+	// Branch is always 0 for change addresses.
+	vpAddr, err := vp.newVotingPoolAddress(seriesID, Branch(0), index)
+	if err != nil {
+		return nil, err
+	}
+	return &ChangeAddress{votingPoolAddress: vpAddr}, nil
+}
+
+func (vp *Pool) WithdrawalAddress(seriesID uint32, branch Branch, index Index) (*WithdrawalAddress, error) {
+	// TODO: Ensure the given series is hot.
+	vpAddr, err := vp.newVotingPoolAddress(seriesID, branch, index)
+	if err != nil {
+		return nil, err
+	}
+	return &WithdrawalAddress{votingPoolAddress: vpAddr}, nil
+}
+
+type votingPoolAddress struct {
+	pool     *Pool
+	addr     btcutil.Address
+	script   []byte
+	seriesID uint32
+	branch   Branch
+	index    Index
+}
+
+func (vp *Pool) newVotingPoolAddress(seriesID uint32, branch Branch, index Index) (*votingPoolAddress, error) {
+	script, err := vp.DepositScript(seriesID, branch, index)
+	if err != nil {
+		return nil, err
+	}
+	addr, err := vp.addressFor(script)
+	if err != nil {
+		return nil, err
+	}
+	return &votingPoolAddress{
+			pool: vp, seriesID: seriesID, branch: branch, index: index, addr: addr, script: script},
+		nil
+}
+
+// String returns a string encoding of the underlying bitcoin payment address.
+func (a *votingPoolAddress) String() string {
+	return a.Addr().EncodeAddress()
+}
+
+func (a *votingPoolAddress) Addr() btcutil.Address {
+	return a.addr
+}
+
+func (a *votingPoolAddress) RedeemScript() []byte {
+	return a.script
+}
+
+func (a *votingPoolAddress) Series() *SeriesData {
+	return a.pool.GetSeries(a.seriesID)
+}
+
+func (a *votingPoolAddress) SeriesID() uint32 {
+	return a.seriesID
+}
+
+func (a *votingPoolAddress) Branch() Branch {
+	return a.branch
+}
+
+func (a *votingPoolAddress) Index() Index {
+	return a.index
+}
+
+type ChangeAddress struct {
+	*votingPoolAddress
+}
+
+func (a *ChangeAddress) Next() (*ChangeAddress, error) {
+	return a.pool.ChangeAddress(a.seriesID, a.index+1)
+}
+
+type WithdrawalAddress struct {
+	*votingPoolAddress
+}
+
 // EmpowerSeries adds the given extended private key (in raw format) to the
 // series with the given ID, thus allowing it to sign deposit/withdrawal
 // scripts. The series with the given ID must exist, the key must be a valid
@@ -627,6 +710,16 @@ func (s *SeriesData) IsEmpowered() bool {
 		}
 	}
 	return false
+}
+
+func (s *SeriesData) getPrivKeyFor(pubKey *hdkeychain.ExtendedKey) (*hdkeychain.ExtendedKey, error) {
+	for i, key := range s.publicKeys {
+		if key.String() == pubKey.String() {
+			return s.privateKeys[i], nil
+		}
+	}
+	return nil, newError(
+		ErrUnknownPubKey, fmt.Sprintf("unknown public key '%s'", pubKey.String()), nil)
 }
 
 // zero sets all bytes in the passed slice to zero.  This is used to

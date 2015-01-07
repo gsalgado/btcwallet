@@ -24,7 +24,6 @@ import (
 	"github.com/conformal/btclog"
 	"github.com/conformal/btcscript"
 	"github.com/conformal/btcutil"
-	"github.com/conformal/btcutil/hdkeychain"
 	"github.com/conformal/btcwallet/txstore"
 	"github.com/conformal/btcwallet/waddrmgr"
 	"github.com/conformal/btcwire"
@@ -62,99 +61,6 @@ var log btclog.Logger
 func init() {
 	// XXX: Make it possible to switch this on/off like in txstore/log.go
 	log, _ = btclog.NewLoggerFromWriter(os.Stdout, btclog.DebugLvl)
-}
-
-func (s *SeriesData) getPrivKeyFor(pubKey *hdkeychain.ExtendedKey) (*hdkeychain.ExtendedKey, error) {
-	for i, key := range s.publicKeys {
-		if key.String() == pubKey.String() {
-			return s.privateKeys[i], nil
-		}
-	}
-	return nil, newError(
-		ErrUnknownPubKey, fmt.Sprintf("unknown public key '%s'", pubKey.String()), nil)
-}
-
-func (vp *Pool) ChangeAddress(seriesID uint32, index Index) (*ChangeAddress, error) {
-	// TODO: Ensure the given series is active.
-	// Branch is always 0 for change addresses.
-	vpAddr, err := vp.newVotingPoolAddress(seriesID, Branch(0), index)
-	if err != nil {
-		return nil, err
-	}
-	return &ChangeAddress{votingPoolAddress: vpAddr}, nil
-}
-
-func (vp *Pool) WithdrawalAddress(seriesID uint32, branch Branch, index Index) (*WithdrawalAddress, error) {
-	// TODO: Ensure the given series is hot.
-	vpAddr, err := vp.newVotingPoolAddress(seriesID, branch, index)
-	if err != nil {
-		return nil, err
-	}
-	return &WithdrawalAddress{votingPoolAddress: vpAddr}, nil
-}
-
-type votingPoolAddress struct {
-	pool     *Pool
-	addr     btcutil.Address
-	script   []byte
-	seriesID uint32
-	branch   Branch
-	index    Index
-}
-
-func (p *Pool) newVotingPoolAddress(seriesID uint32, branch Branch, index Index) (*votingPoolAddress, error) {
-	script, err := p.DepositScript(seriesID, branch, index)
-	if err != nil {
-		return nil, err
-	}
-	addr, err := p.addressFor(script)
-	if err != nil {
-		return nil, err
-	}
-	return &votingPoolAddress{
-			pool: p, seriesID: seriesID, branch: branch, index: index, addr: addr, script: script},
-		nil
-}
-
-// String returns a string encoding of the underlying bitcoin payment address.
-func (a *votingPoolAddress) String() string {
-	return a.Addr().EncodeAddress()
-}
-
-func (a *votingPoolAddress) Addr() btcutil.Address {
-	return a.addr
-}
-
-func (a *votingPoolAddress) RedeemScript() []byte {
-	return a.script
-}
-
-func (a *votingPoolAddress) Series() *SeriesData {
-	return a.pool.GetSeries(a.seriesID)
-}
-
-func (a *votingPoolAddress) SeriesID() uint32 {
-	return a.seriesID
-}
-
-func (a *votingPoolAddress) Branch() Branch {
-	return a.branch
-}
-
-func (a *votingPoolAddress) Index() Index {
-	return a.index
-}
-
-type ChangeAddress struct {
-	*votingPoolAddress
-}
-
-func (a *ChangeAddress) Next() (*ChangeAddress, error) {
-	return a.pool.ChangeAddress(a.seriesID, a.index+1)
-}
-
-type WithdrawalAddress struct {
-	*votingPoolAddress
 }
 
 type WithdrawalStatus struct {
@@ -195,26 +101,26 @@ type OutputRequest struct {
 }
 
 // String makes OutputRequest satisfy the Stringer interface.
-func (o OutputRequest) String() string {
-	return fmt.Sprintf("OutputRequest %s to send %v to %s", o.outBailmentID(), o.amount, o.address)
+func (r OutputRequest) String() string {
+	return fmt.Sprintf("OutputRequest %s to send %v to %s", r.outBailmentID(), r.amount, r.address)
 }
 
-func (o OutputRequest) outBailmentID() string {
-	return fmt.Sprintf("%s:%d", o.server, o.transaction)
+func (r OutputRequest) outBailmentID() string {
+	return fmt.Sprintf("%s:%d", r.server, r.transaction)
 }
 
 // outBailmentIDHash returns a byte slice which is used when sorting
 // OutputRequests.
-func (o OutputRequest) outBailmentIDHash() []byte {
-	if o.cachedHash != nil {
-		return o.cachedHash
+func (r OutputRequest) outBailmentIDHash() []byte {
+	if r.cachedHash != nil {
+		return r.cachedHash
 	}
-	str := fmt.Sprintf("%s%d", o.server, o.transaction)
+	str := fmt.Sprintf("%s%d", r.server, r.transaction)
 	hasher := fastsha256.New()
 	// hasher.Write() always returns nil as the error, so it's safe to ignore it here.
 	_, _ = hasher.Write([]byte(str))
 	id := hasher.Sum(nil)
-	o.cachedHash = id
+	r.cachedHash = id
 	return id
 }
 
@@ -247,8 +153,8 @@ func (o *WithdrawalOutput) Outpoints() []OutBailmentOutpoint {
 	return o.outpoints
 }
 
-// XXX: This is a horrible name, really.
 // OutBailmentOutpoint represents one of the outpoints created to fulfil an OutputRequest.
+// XXX: This is a horrible name, really.
 type OutBailmentOutpoint struct {
 	ntxid  string
 	index  uint32
@@ -259,10 +165,10 @@ func (o OutBailmentOutpoint) Amount() btcutil.Amount {
 	return o.amount
 }
 
-// A list of raw signatures (one for every pubkey in the multi-sig script)
-// for a given transaction input. They should match the order of pubkeys in
-// the script and an empty RawSig should be used when the private key for
-// a pubkey is not known.
+// TxSigs is list of raw signatures (one for every pubkey in the multi-sig
+// script) for a given transaction input. They should match the order of pubkeys
+// in the script and an empty RawSig should be used when the private key for a
+// pubkey is not known.
 type TxSigs [][]RawSig
 
 type RawSig []byte
@@ -320,48 +226,6 @@ type decoratedTx struct {
 	changeOutput *btcwire.TxOut
 }
 
-// inputTotal returns the sum amount of all inputs in this tx.
-func (d *decoratedTx) inputTotal() (total btcutil.Amount) {
-	for _, input := range d.inputs {
-		total += input.Amount()
-	}
-	return total
-}
-
-// outputTotal returns the sum amount of all outputs in this tx. It does not
-// include the amount for the change output, in case the tx has one.
-func (d *decoratedTx) outputTotal() (total btcutil.Amount) {
-	for _, output := range d.outputs {
-		total += output.amount
-	}
-	return total
-}
-
-// hasChange returns true if this transaction has a change output.
-func (d *decoratedTx) hasChange() bool {
-	return d.changeOutput != nil
-}
-
-// toMsgTx generates a btcwire.MsgTx.
-func (d *decoratedTx) toMsgTx() *btcwire.MsgTx {
-	msgtx := btcwire.NewMsgTx()
-	// Add outputs.
-	for _, o := range d.outputs {
-		msgtx.AddTxOut(btcwire.NewTxOut(int64(o.amount), o.pkScript()))
-	}
-
-	// Add change output.
-	if d.hasChange() {
-		msgtx.AddTxOut(d.changeOutput)
-	}
-
-	// Add inputs.
-	for _, i := range d.inputs {
-		msgtx.AddTxIn(btcwire.NewTxIn(i.OutPoint(), nil))
-	}
-	return msgtx
-}
-
 func newDecoratedTx() *decoratedTx {
 	tx := &decoratedTx{}
 	tx.calculateFee = func() btcutil.Amount {
@@ -374,28 +238,70 @@ func newDecoratedTx() *decoratedTx {
 	return tx
 }
 
-func (d *decoratedTx) addTxOut(request OutputRequest) {
+// inputTotal returns the sum amount of all inputs in this tx.
+func (tx *decoratedTx) inputTotal() (total btcutil.Amount) {
+	for _, input := range tx.inputs {
+		total += input.Amount()
+	}
+	return total
+}
+
+// outputTotal returns the sum amount of all outputs in this tx. It does not
+// include the amount for the change output, in case the tx has one.
+func (tx *decoratedTx) outputTotal() (total btcutil.Amount) {
+	for _, output := range tx.outputs {
+		total += output.amount
+	}
+	return total
+}
+
+// hasChange returns true if this transaction has a change output.
+func (tx *decoratedTx) hasChange() bool {
+	return tx.changeOutput != nil
+}
+
+// toMsgTx generates a btcwire.MsgTx.
+func (tx *decoratedTx) toMsgTx() *btcwire.MsgTx {
+	msgtx := btcwire.NewMsgTx()
+	// Add outputs.
+	for _, o := range tx.outputs {
+		msgtx.AddTxOut(btcwire.NewTxOut(int64(o.amount), o.pkScript()))
+	}
+
+	// Add change output.
+	if tx.hasChange() {
+		msgtx.AddTxOut(tx.changeOutput)
+	}
+
+	// Add inputs.
+	for _, i := range tx.inputs {
+		msgtx.AddTxIn(btcwire.NewTxIn(i.OutPoint(), nil))
+	}
+	return msgtx
+}
+
+func (tx *decoratedTx) addTxOut(request OutputRequest) {
 	log.Infof("Added output sending %s to %s", request.amount, request.address)
-	d.outputs = append(d.outputs, &decoratedTxOut{request: request, amount: request.amount})
+	tx.outputs = append(tx.outputs, &decoratedTxOut{request: request, amount: request.amount})
 }
 
 // popOutput will pop the last added output and return it.
-func (d *decoratedTx) popOutput() *decoratedTxOut {
-	removed := d.outputs[len(d.outputs)-1]
-	d.outputs = d.outputs[:len(d.outputs)-1]
+func (tx *decoratedTx) popOutput() *decoratedTxOut {
+	removed := tx.outputs[len(tx.outputs)-1]
+	tx.outputs = tx.outputs[:len(tx.outputs)-1]
 	return removed
 }
 
 // popInput will pop the last added input and return it.
-func (d *decoratedTx) popInput() CreditInterface {
-	removed := d.inputs[len(d.inputs)-1]
-	d.inputs = d.inputs[:len(d.inputs)-1]
+func (tx *decoratedTx) popInput() CreditInterface {
+	removed := tx.inputs[len(tx.inputs)-1]
+	tx.inputs = tx.inputs[:len(tx.inputs)-1]
 	return removed
 }
 
-func (d *decoratedTx) addTxIn(input CreditInterface) {
+func (tx *decoratedTx) addTxIn(input CreditInterface) {
 	log.Infof("Added input with amount %v", input.Amount())
-	d.inputs = append(d.inputs, input)
+	tx.inputs = append(tx.inputs, input)
 }
 
 // addChange adds a change output if there are any satoshis left after paying
@@ -405,16 +311,16 @@ func (d *decoratedTx) addTxIn(input CreditInterface) {
 // This method must be called only once, and no extra inputs/outputs should be
 // added after it's called. Also, callsites must make sure adding a change
 // output won't cause the tx to exceed the size limit.
-func (d *decoratedTx) addChange(pkScript []byte) bool {
-	d.fee = d.calculateFee()
-	change := d.inputTotal() - d.outputTotal() - d.fee
-	log.Debugf("addChange: input total %v, output total %v, fee %v", d.inputTotal(),
-		d.outputTotal(), d.fee)
+func (tx *decoratedTx) addChange(pkScript []byte) bool {
+	tx.fee = tx.calculateFee()
+	change := tx.inputTotal() - tx.outputTotal() - tx.fee
+	log.Debugf("addChange: input total %v, output total %v, fee %v", tx.inputTotal(),
+		tx.outputTotal(), tx.fee)
 	if change > 0 {
-		d.changeOutput = btcwire.NewTxOut(int64(change), pkScript)
+		tx.changeOutput = btcwire.NewTxOut(int64(change), pkScript)
 		log.Infof("Added change output with amount %v", change)
 	}
-	return d.hasChange()
+	return tx.hasChange()
 }
 
 // rollBackLastOutput will roll back the last added output and possibly remove
@@ -423,32 +329,32 @@ func (d *decoratedTx) addChange(pkScript []byte) bool {
 //
 // The decorated tx needs to have two or more outputs. The case with only one
 // output must be handled separately (by the split output procedure).
-func (d *decoratedTx) rollBackLastOutput() ([]CreditInterface, *decoratedTxOut, error) {
+func (tx *decoratedTx) rollBackLastOutput() ([]CreditInterface, *decoratedTxOut, error) {
 	// Check precondition: At least two outputs are required in the transaction.
-	if len(d.outputs) < 2 {
-		str := fmt.Sprintf("at least two outputs expected; got %d", len(d.outputs))
+	if len(tx.outputs) < 2 {
+		str := fmt.Sprintf("at least two outputs expected; got %d", len(tx.outputs))
 		return nil, nil, newError(ErrPreconditionNotMet, str, nil)
 	}
 
-	removedOutput := d.popOutput()
+	removedOutput := tx.popOutput()
 
 	var removedInputs []CreditInterface
 	// Continue until sum(in) < sum(out) + fee
-	for d.inputTotal() >= d.outputTotal()+d.calculateFee() {
-		removed := d.popInput()
+	for tx.inputTotal() >= tx.outputTotal()+tx.calculateFee() {
+		removed := tx.popInput()
 		removedInputs = append(removedInputs, removed)
 	}
 
 	// Re-add the last one
 	inputTop := removedInputs[len(removedInputs)-1]
 	removedInputs = removedInputs[:len(removedInputs)-1]
-	d.addTxIn(inputTop)
+	tx.addTxIn(inputTop)
 	return removedInputs, removedOutput, nil
 }
 
-func isTooBig(d *decoratedTx) bool {
+func isTooBig(tx *decoratedTx) bool {
 	// TODO: Implement me!
-	return estimateSize(d) > 1000
+	return estimateSize(tx) > 1000
 }
 
 func newWithdrawal(roundID uint32, requests []OutputRequest, inputs []CreditInterface,
@@ -844,13 +750,13 @@ func getRawSigs(transactions []*decoratedTx) (map[string]TxSigs, error) {
 	return sigs, nil
 }
 
-// XXX: This assumes that the voting pool deposit script was imported into
-// waddrmgr, which is currently not done automatically when we generate a new
-// deposit script/address.
 // SignTx signs every input of the given MsgTx by looking up (on the addr
 // manager) the redeem script for each of them and constructing the signature
 // script using that and the given raw signatures.
 // This function must be called with the manager unlocked.
+// XXX: This assumes that the voting pool deposit script was imported into
+// waddrmgr, which is currently not done automatically when we generate a new
+// deposit script/address.
 func SignTx(msgtx *btcwire.MsgTx, sigs TxSigs, mgr *waddrmgr.Manager, store *txstore.Store) error {
 	for i, txIn := range msgtx.TxIn {
 		txOut, err := store.UnconfirmedSpent(txIn.PreviousOutPoint)
