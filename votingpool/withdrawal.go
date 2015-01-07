@@ -549,10 +549,7 @@ func (w *withdrawal) fulfillNextRequest() error {
 	w.current.addTxOut(request)
 
 	if w.current.isTooBig() {
-		if err := w.handleOversizeTx(); err != nil {
-			return err
-		}
-		// XXX: We should probably return here. Must write a test to make sure.
+		return w.handleOversizeTx()
 	}
 
 	fee := w.current.calculateFee()
@@ -570,14 +567,9 @@ func (w *withdrawal) fulfillNextRequest() error {
 		fee = w.current.calculateFee()
 
 		if w.current.isTooBig() {
-			if err := w.handleOversizeTx(); err != nil {
-				return err
-			}
-			// XXX: w.handleOversizeTx() will always start a new tx, so we
-			// should probably break here. Need to first write a test, though.
+			return w.handleOversizeTx()
 		}
 	}
-
 	return nil
 }
 
