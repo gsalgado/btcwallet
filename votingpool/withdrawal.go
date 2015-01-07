@@ -285,6 +285,11 @@ type withdrawal struct {
 // It is necessary because some requests may be partially fulfilled or split
 // across transactions.
 type decoratedTxOut struct {
+	// Notice that in the case of a split output, the OutputRequest here will
+	// be a copy of the original one with the amount being the remainder of the
+	// originally requested amount minus the amounts fulfilled by other
+	// decoratedTxOut. The original OutputRequest, if needed, can be obtained
+	// from WithdrawalStatus.outputs.
 	request OutputRequest
 	amount  btcutil.Amount
 }
@@ -630,11 +635,24 @@ func (w *withdrawal) finalizeCurrentTx() error {
 			OutBailmentOutpoint{ntxid: ntxid, index: uint32(i), amount: txOut.amount})
 	}
 
-	// TODO: Iterate over w.status.outputs and check that entries with status==success
-	// have sum(outpoints)==request.amount
-
-	// TODO: Update the status of all partial entries in w.status.outputs to convey
-	// which series need to be thawed.
+	// Check that WithdrawalOutput entries with status==success have the sum of
+	// their outpoint amounts matching the requested amount.
+	for _, txOut := range tx.outputs {
+		// Look up the original request we received because txOut.request may
+		// represent a split request and thus have a different amount from the
+		// original one.
+		outputStatus := w.status.outputs[txOut.request.outBailmentID()]
+		origRequest := outputStatus.request
+		amtFulfilled := btcutil.Amount(0)
+		for _, outpoint := range outputStatus.outpoints {
+			amtFulfilled += outpoint.amount
+		}
+		if outputStatus.status == "success" && amtFulfilled != origRequest.amount {
+			msg := fmt.Sprintf(
+				"%s was not completely fulfilled; only %v fulfilled", origRequest, amtFulfilled)
+			return newError(ErrWithdrawalProcessing, msg, nil)
+		}
+	}
 
 	w.transactions = append(w.transactions, tx)
 	w.current = w.newDecoratedTx()
