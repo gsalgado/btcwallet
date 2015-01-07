@@ -649,12 +649,11 @@ func (w *withdrawal) finalizeCurrentTx() error {
 	return nil
 }
 
-// maybeDropOutputs will check the total amount we have in eligible inputs and drop
+// maybeDropRequests will check the total amount we have in eligible inputs and drop
 // requested outputs (in descending amount order) if we don't have enough to fulfil them
 // all. For every dropped output request we add an entry to w.status.outputs with the
 // status string set to "partial-".
-// XXX: Rename this to maybeDropRequests()
-func (w *withdrawal) maybeDropOutputs() {
+func (w *withdrawal) maybeDropRequests() {
 	inputAmount := btcutil.Amount(0)
 	for _, input := range w.eligibleInputs {
 		inputAmount += input.Amount()
@@ -677,7 +676,7 @@ func (w *withdrawal) maybeDropOutputs() {
 
 // XXX: Rename this to fulfilRequests.
 func (w *withdrawal) fulfilOutputs() error {
-	w.maybeDropOutputs()
+	w.maybeDropRequests()
 	if len(w.pendingRequests) == 0 {
 		return nil
 	}
