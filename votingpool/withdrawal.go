@@ -674,7 +674,6 @@ func (w *withdrawal) maybeDropRequests() {
 	}
 }
 
-// XXX: Rename this to fulfilRequests.
 func (w *withdrawal) fulfilOutputs() error {
 	w.maybeDropRequests()
 	if len(w.pendingRequests) == 0 {
