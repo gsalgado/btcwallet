@@ -325,10 +325,11 @@ func (tx *decoratedTx) addChange(pkScript []byte) bool {
 
 // rollBackLastOutput will roll back the last added output and possibly remove
 // inputs that are no longer needed to cover the remaining outputs. The method
-// returns the removed output and the removed inputs, if any.
+// returns the removed output and the removed inputs, in the order they were
+// added, if any.
 //
-// The decorated tx needs to have two or more outputs. The case with only one
-// output must be handled separately (by the split output procedure).
+// The tx needs to have two or more outputs. The case with only one output must
+// be handled separately (by the split output procedure).
 func (tx *decoratedTx) rollBackLastOutput() ([]CreditInterface, *decoratedTxOut, error) {
 	// Check precondition: At least two outputs are required in the transaction.
 	if len(tx.outputs) < 2 {
@@ -342,13 +343,12 @@ func (tx *decoratedTx) rollBackLastOutput() ([]CreditInterface, *decoratedTxOut,
 	// Continue until sum(in) < sum(out) + fee
 	for tx.inputTotal() >= tx.outputTotal()+tx.calculateFee() {
 		removed := tx.popInput()
-		removedInputs = append(removedInputs, removed)
+		removedInputs = append([]CreditInterface{removed}, removedInputs...)
 	}
 
-	// Re-add the last one
-	inputTop := removedInputs[len(removedInputs)-1]
-	removedInputs = removedInputs[:len(removedInputs)-1]
-	tx.addTxIn(inputTop)
+	// Re-add the first item from removedInputs, which is the last popped input.
+	tx.addTxIn(removedInputs[0])
+	removedInputs = removedInputs[1:]
 	return removedInputs, removedOutput, nil
 }
 

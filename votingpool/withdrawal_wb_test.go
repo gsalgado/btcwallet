@@ -602,8 +602,39 @@ func TestRollbackLastOutput(t *testing.T) {
 	checkTxInputs(t, tx, initialInputs[:len(initialInputs)-1])
 }
 
-// TestRollbackLastOutputEdgeCase where we roll back one output but no
-// inputs, such that sum(in) >= sum(out) + fee.
+func TestRollbackLastOutputMultipleInputsRolledBack(t *testing.T) {
+	tearDown, pool, store := TstCreatePoolAndTxStore(t)
+	defer tearDown()
+
+	// This tx will need the 3 last inputs to fulfill the second output, so they
+	// should all be rolled back and returned in the order they were added.
+	tx := createDecoratedTx(t, pool, store, []int64{1, 2, 3, 4}, []int64{1, 8})
+	initialInputs := tx.inputs
+	initialOutputs := tx.outputs
+
+	tx.calculateFee = TstConstantFee(0)
+	removedInputs, _, err := tx.rollBackLastOutput()
+	if err != nil {
+		t.Fatal("Unexpected error:", err)
+	}
+
+	if len(removedInputs) != 3 {
+		t.Fatalf("Unexpected number of inputs removed; got %d, want 3", len(removedInputs))
+	}
+	for i, amount := range []btcutil.Amount{2, 3, 4} {
+		if removedInputs[i].Amount() != amount {
+			t.Fatalf("Unexpected input amount; got %v, want %v", removedInputs[i].Amount(), amount)
+		}
+	}
+
+	// Now check that the inputs and outputs left in the tx match what we
+	// expect.
+	checkTxOutputs(t, tx, initialOutputs[:len(initialOutputs)-1])
+	checkTxInputs(t, tx, initialInputs[:len(initialInputs)-len(removedInputs)])
+}
+
+// TestRollbackLastOutputNoInputsRolledBack tests the case where we roll back
+// one output but don't need to roll back any inputs.
 func TestRollbackLastOutputNoInputsRolledBack(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
@@ -665,6 +696,21 @@ func TestPopOutput(t *testing.T) {
 	}
 }
 
+// TestRollBackLastOutputInsufficientOutputs checks that
+// rollBackLastOutput returns an error if there are less than two
+// outputs in the transaction.
+func TestRollBackLastOutputInsufficientOutputs(t *testing.T) {
+	tx := newDecoratedTx()
+	_, _, err := tx.rollBackLastOutput()
+	TstCheckError(t, "", err, ErrPreconditionNotMet)
+
+	output := &WithdrawalOutput{request: TstNewOutputRequest(
+		t, 1, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", btcutil.Amount(3), &btcnet.MainNetParams)}
+	tx.addTxOut(output.request)
+	_, _, err = tx.rollBackLastOutput()
+	TstCheckError(t, "", err, ErrPreconditionNotMet)
+}
+
 func TestPopInput(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
@@ -691,21 +737,6 @@ func TestPopInput(t *testing.T) {
 	if tx.inputs[0] != remainingCreditInterface {
 		t.Fatalf("Wrong input: got %v, want %v", tx.inputs[0], remainingCreditInterface)
 	}
-}
-
-// TestRollBackLastOutputInsufficientOutputs checks that
-// rollBackLastOutput returns an error if there are less than two
-// outputs in the transaction.
-func TestRollBackLastOutputInsufficientOutputs(t *testing.T) {
-	tx := newDecoratedTx()
-	_, _, err := tx.rollBackLastOutput()
-	TstCheckError(t, "", err, ErrPreconditionNotMet)
-
-	output := &WithdrawalOutput{request: TstNewOutputRequest(
-		t, 1, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", btcutil.Amount(3), &btcnet.MainNetParams)}
-	tx.addTxOut(output.request)
-	_, _, err = tx.rollBackLastOutput()
-	TstCheckError(t, "", err, ErrPreconditionNotMet)
 }
 
 // TestTriggerFirstTxTooBigAndRollback changes isTooBig to return true if a
