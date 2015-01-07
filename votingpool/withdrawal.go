@@ -189,12 +189,6 @@ type OutputRequest struct {
 	// The server-specific transaction number for the outbailment request.
 	transaction uint32
 
-	// Whether or not this is an "artificial" request, created because we had to
-	// split one of the original requests across multiple transactions. If
-	// that's the case, the original request will have the original amount and
-	// this one
-	isSplit bool
-
 	// cachedHash is used to cache the hash of the outBailmentID so it
 	// only has to be calculated once.
 	cachedHash []byte
@@ -243,18 +237,6 @@ func (o *WithdrawalOutput) addOutpoint(outpoint OutBailmentOutpoint) {
 
 func (o *WithdrawalOutput) Status() string {
 	return o.status
-}
-
-func (o *WithdrawalOutput) RequestedAmount() btcutil.Amount {
-	return o.request.amount
-}
-
-func (o *WithdrawalOutput) UnfulfilledAmount() btcutil.Amount {
-	amount := o.RequestedAmount()
-	for _, outpoint := range o.outpoints {
-		amount -= outpoint.amount
-	}
-	return amount
 }
 
 func (o *WithdrawalOutput) Address() string {
@@ -314,6 +296,8 @@ func (o *decoratedTxOut) pkScript() []byte {
 
 // A btcwire.MsgTx decorated with some supporting data structures needed throughout the
 // withdrawal process.
+// XXX: Rename this to inProgressTx or something like that, and fix the comment
+// above. May also want to rename decoratedTxOut.
 type decoratedTx struct {
 	inputs  []CreditInterface
 	outputs []*decoratedTxOut
@@ -611,7 +595,7 @@ func (w *withdrawal) handleOversizeTx() error {
 		w.eligibleInputs = append(w.eligibleInputs, inputs...)
 		w.pendingOutputs = append(w.pendingOutputs, output.request)
 	} else if len(w.current.outputs) == 1 {
-		log.Debug("Splitting last output because tx got too big")
+		log.Debug("Splitting last output because tx got too big...")
 		lastInput := w.current.popInput()
 		w.eligibleInputs = append([]CreditInterface{lastInput}, w.eligibleInputs...)
 		if err := w.splitLastOutput(); err != nil {
@@ -734,20 +718,20 @@ func (w *withdrawal) splitLastOutput() error {
 
 	tx := w.current
 	output := tx.outputs[len(tx.outputs)-1]
+	log.Debugf("Splitting tx output for %s", output.request)
 	origAmount := output.amount
 	spentAmount := tx.outputTotal() + tx.calculateFee() - output.amount
 	// This is how much we have left after satisfying all outputs except the last
 	// one. IOW, all we have left for the last output, so we set that as the
-	// amount of our last output request.
+	// amount of the tx's last output.
 	unspentAmount := tx.inputTotal() - spentAmount
 	output.amount = unspentAmount
 	log.Debugf("Updated output amount to %v", output.amount)
 
 	// Create a new OutputRequest with the amount being the difference between
-	// the original amount and what was left in the original output request.
+	// the original amount and what was left in the tx output above.
 	request := output.request
 	newRequest := OutputRequest{
-		isSplit:     true,
 		server:      request.server,
 		transaction: request.transaction,
 		address:     request.address,

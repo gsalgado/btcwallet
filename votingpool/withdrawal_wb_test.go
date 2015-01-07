@@ -934,7 +934,8 @@ func checkNonEmptySigsForPrivKeys(t *testing.T, txSigs TxSigs, privKeys []*hdkey
 	}
 }
 
-// checkTxOutputs ensures that the tx.outputs match the given outputs.
+// checkTxOutputs uses reflect.DeepEqual() to ensure that the tx outputs match
+// the given slice of decoratedTxOuts.
 func checkTxOutputs(t *testing.T, tx *decoratedTx, outputs []*decoratedTxOut) {
 	nOutputs := len(outputs)
 	if len(tx.outputs) != nOutputs {
