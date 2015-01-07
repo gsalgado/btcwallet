@@ -268,15 +268,14 @@ type TxSigs [][]RawSig
 type RawSig []byte
 
 // withdrawal holds all the state needed for Pool.Withdrawal() to do its job.
-// XXX: Rename pendingOutputs to pendingRequests
 type withdrawal struct {
-	roundID        uint32
-	status         *WithdrawalStatus
-	changeStart    *ChangeAddress
-	transactions   []*decoratedTx
-	pendingOutputs []OutputRequest
-	eligibleInputs []CreditInterface
-	current        *decoratedTx
+	roundID         uint32
+	status          *WithdrawalStatus
+	changeStart     *ChangeAddress
+	transactions    []*decoratedTx
+	pendingRequests []OutputRequest
+	eligibleInputs  []CreditInterface
+	current         *decoratedTx
 	// newDecoratedTx is a member of the structure so it can be replaced for
 	// testing purposes.
 	newDecoratedTx func() *decoratedTx
@@ -454,13 +453,13 @@ func newWithdrawal(roundID uint32, requests []OutputRequest, inputs []CreditInte
 		outputs[request.outBailmentID()] = &WithdrawalOutput{request: request}
 	}
 	return &withdrawal{
-		roundID:        roundID,
-		current:        newDecoratedTx(),
-		pendingOutputs: requests,
-		eligibleInputs: inputs,
-		status:         &WithdrawalStatus{outputs: outputs},
-		changeStart:    changeStart,
-		newDecoratedTx: newDecoratedTx,
+		roundID:         roundID,
+		current:         newDecoratedTx(),
+		pendingRequests: requests,
+		eligibleInputs:  inputs,
+		status:          &WithdrawalStatus{outputs: outputs},
+		changeStart:     changeStart,
+		newDecoratedTx:  newDecoratedTx,
 	}
 }
 
@@ -541,8 +540,8 @@ func getTxOutIndex(txout *btcwire.TxOut, msgtx *btcwire.MsgTx) (uint32, error) {
 // after we add a change output and sign all inputs.
 // XXX: Rename this to fulfilNextRequest
 func (w *withdrawal) fulfilNextOutput() error {
-	request := w.pendingOutputs[0]
-	w.pendingOutputs = w.pendingOutputs[1:]
+	request := w.pendingRequests[0]
+	w.pendingRequests = w.pendingRequests[1:]
 
 	output := w.status.outputs[request.outBailmentID()]
 	// We start with an output status of success and if anything goes wrong it
@@ -593,7 +592,7 @@ func (w *withdrawal) handleOversizeTx() error {
 			return newError(ErrWithdrawalProcessing, "failed to rollback last output", err)
 		}
 		w.eligibleInputs = append(w.eligibleInputs, inputs...)
-		w.pendingOutputs = append(w.pendingOutputs, output.request)
+		w.pendingRequests = append(w.pendingRequests, output.request)
 	} else if len(w.current.outputs) == 1 {
 		log.Debug("Splitting last output because tx got too big...")
 		lastInput := w.current.popInput()
@@ -662,15 +661,15 @@ func (w *withdrawal) maybeDropOutputs() {
 		inputAmount += input.Amount()
 	}
 	outputAmount := btcutil.Amount(0)
-	for _, request := range w.pendingOutputs {
+	for _, request := range w.pendingRequests {
 		outputAmount += request.amount
 	}
-	sort.Sort(sort.Reverse(byAmount(w.pendingOutputs)))
+	sort.Sort(sort.Reverse(byAmount(w.pendingRequests)))
 	for inputAmount < outputAmount {
-		request := w.pendingOutputs[0]
+		request := w.pendingRequests[0]
 		log.Infof("Not fulfilling request to send %v to %v; not enough credits.",
 			request.amount, request.address)
-		w.pendingOutputs = w.pendingOutputs[1:]
+		w.pendingRequests = w.pendingRequests[1:]
 		outputAmount -= request.amount
 		// XXX: Do not hardcode the status strings here, nor in tests.
 		w.status.outputs[request.outBailmentID()].status = "partial-"
@@ -680,14 +679,14 @@ func (w *withdrawal) maybeDropOutputs() {
 // XXX: Rename this to fulfilRequests.
 func (w *withdrawal) fulfilOutputs() error {
 	w.maybeDropOutputs()
-	if len(w.pendingOutputs) == 0 {
+	if len(w.pendingRequests) == 0 {
 		return nil
 	}
 
 	// Sort outputs by outBailmentID (hash(server ID, tx #))
-	sort.Sort(byOutBailmentID(w.pendingOutputs))
+	sort.Sort(byOutBailmentID(w.pendingRequests))
 
-	for len(w.pendingOutputs) > 0 {
+	for len(w.pendingRequests) > 0 {
 		if err := w.fulfilNextOutput(); err != nil {
 			return err
 		}
@@ -737,7 +736,7 @@ func (w *withdrawal) splitLastOutput() error {
 		address:     request.address,
 		pkScript:    request.pkScript,
 		amount:      origAmount - output.amount}
-	w.pendingOutputs = append([]OutputRequest{newRequest}, w.pendingOutputs...)
+	w.pendingRequests = append([]OutputRequest{newRequest}, w.pendingRequests...)
 	log.Debugf("Created a new pending output request with amount %v", newRequest.amount)
 
 	w.status.outputs[request.outBailmentID()].status = "partial-"

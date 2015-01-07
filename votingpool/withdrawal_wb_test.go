@@ -1069,7 +1069,7 @@ func newChangeAddress(t *testing.T, pool *Pool, seriesID uint32, idx Index) *Cha
 // for its amount) to the request of the last output in the tx.
 func checkLastOutputWasSplit(t *testing.T, w *withdrawal, tx *decoratedTx,
 	origAmount, newAmount btcutil.Amount) {
-	splitRequest := w.pendingOutputs[0]
+	splitRequest := w.pendingRequests[0]
 	lastOutput := tx.outputs[len(tx.outputs)-1]
 	if lastOutput.amount != newAmount {
 		t.Fatalf("Wrong amount in last output; got %s, want %s", lastOutput.amount, newAmount)
