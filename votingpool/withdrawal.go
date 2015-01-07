@@ -538,8 +538,7 @@ func getTxOutIndex(txout *btcwire.TxOut, msgtx *btcwire.MsgTx) (uint32, error) {
 // If this returns it means we have added an output and the necessary inputs to fulfil that
 // output plus the required fees. It also means the tx won't reach the size limit even
 // after we add a change output and sign all inputs.
-// XXX: Rename this to fulfilNextRequest
-func (w *withdrawal) fulfilNextOutput() error {
+func (w *withdrawal) fulfillNextRequest() error {
 	request := w.pendingRequests[0]
 	w.pendingRequests = w.pendingRequests[1:]
 
@@ -687,7 +686,7 @@ func (w *withdrawal) fulfilOutputs() error {
 	sort.Sort(byOutBailmentID(w.pendingRequests))
 
 	for len(w.pendingRequests) > 0 {
-		if err := w.fulfilNextOutput(); err != nil {
+		if err := w.fulfillNextRequest(); err != nil {
 			return err
 		}
 		tx := w.current

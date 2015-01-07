@@ -713,7 +713,7 @@ func TestRollBackLastOutputInsufficientOutputs(t *testing.T) {
 // means that we will add both outputs and then the isTooBig check will trigger
 // a rollback as there is more than one output and sufficient inputs.
 //
-// This test triggers the first isTooBig check in the fulfilNextOutput method.
+// This test triggers the first isTooBig check in the fulfillNextRequest method.
 func TestTriggerFirstTxTooBigAndRollback(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
