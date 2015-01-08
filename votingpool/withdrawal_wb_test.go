@@ -313,7 +313,7 @@ func TestRollbackLastOutputMultipleInputsRolledBack(t *testing.T) {
 	defer tearDown()
 
 	// This tx will need the 3 last inputs to fulfill the second output, so they
-	// should all be rolled back and returned in the order they were added.
+	// should all be rolled back and returned in the reverse order they were added.
 	tx := createDecoratedTx(t, pool, store, []int64{1, 2, 3, 4}, []int64{1, 8})
 	initialInputs := tx.inputs
 	initialOutputs := tx.outputs
@@ -327,7 +327,7 @@ func TestRollbackLastOutputMultipleInputsRolledBack(t *testing.T) {
 	if len(removedInputs) != 3 {
 		t.Fatalf("Unexpected number of inputs removed; got %d, want 3", len(removedInputs))
 	}
-	for i, amount := range []btcutil.Amount{2, 3, 4} {
+	for i, amount := range []btcutil.Amount{4, 3, 2} {
 		if removedInputs[i].Amount() != amount {
 			t.Fatalf("Unexpected input amount; got %v, want %v", removedInputs[i].Amount(), amount)
 		}
@@ -387,7 +387,7 @@ func TestRollBackLastOutputInsufficientOutputs(t *testing.T) {
 }
 
 // TestRollbackLastOutputWhenNewOutputAdded checks that we roll back the last
-// output if a tx becomes too big when we add a new output to it.
+// output if a tx becomes too big right after we add a new output to it.
 func TestRollbackLastOutputWhenNewOutputAdded(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
@@ -442,17 +442,19 @@ func TestRollbackLastOutputWhenNewOutputAdded(t *testing.T) {
 }
 
 // TestRollbackLastOutputWhenNewInputAdded checks that we roll back the last
-// output if a tx becomes too big when we add a new input to it.
+// output if a tx becomes too big right after we add a new input to it.
 func TestRollbackLastOutputWhenNewInputAdded(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
 	net := pool.Manager().Net()
-	series, eligible := TstCreateCredits(t, pool, []int64{1, 2}, store)
+	series, eligible := TstCreateCredits(t, pool, []int64{1, 2, 3, 4, 5, 6}, store)
 	requests := []OutputRequest{
-		// This is ordered by bailment ID
+		// This is manually ordered by outBailmentIDHash, which is the order in
+		// which they're going to be fulfilled by w.fulfillRequests().
 		TstNewOutputRequest(t, 1, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", 1, net),
-		TstNewOutputRequest(t, 2, "3PbExiaztsSYgh6zeMswC49hLUwhTQ86XG", 2, net),
+		TstNewOutputRequest(t, 3, "3Qt1EaKRD9g9FeL2DGkLLswhK1AKmmXFSe", 6, net),
+		TstNewOutputRequest(t, 2, "3PbExiaztsSYgh6zeMswC49hLUwhTQ86XG", 3, net),
 	}
 	changeStart, err := pool.ChangeAddress(series, 0)
 	if err != nil {
@@ -462,15 +464,17 @@ func TestRollbackLastOutputWhenNewInputAdded(t *testing.T) {
 	w := newWithdrawal(0, requests, eligible, changeStart)
 	w.newDecoratedTx = func() *decoratedTx {
 		d := newDecoratedTx()
-		// Make a transaction too big as soon as a second input is added to it.
+		// Make a transaction too big as soon as a fourth input is added to it.
 		d.isTooBig = func() bool {
-			return len(d.inputs) > 1
+			return len(d.inputs) > 3
 		}
 		d.calculateFee = TstConstantFee(0)
 		return d
 	}
 	w.current = w.newDecoratedTx()
 
+	// The rollback should be triggered right after the 4th input is added in
+	// order to fulfill the second request.
 	if err := w.fulfillRequests(); err != nil {
 		t.Fatal("Unexpected error:", err)
 	}
@@ -480,17 +484,24 @@ func TestRollbackLastOutputWhenNewInputAdded(t *testing.T) {
 		t.Fatalf("Wrong number of finalized transactions; got %d, want 2", len(w.transactions))
 	}
 
-	// First tx should have one output with amount of 1 and no change output.
+	// First tx should have one output with amount of 1, the first input from
+	// the list of eligible inputs, and no change output.
 	firstTx := w.transactions[0]
 	req1 := requests[0]
 	checkTxOutputs(
 		t, firstTx, []*decoratedTxOut{&decoratedTxOut{request: req1, amount: req1.amount}})
+	checkTxInputs(t, firstTx, eligible[0:1])
 
-	// Second tx should have one output with amount of 2 and no change output.
+	// Second tx should have outputs for the two last requests (in the same
+	// order they were passed to newWithdrawal), and the 3 inputs needed to
+	// fulfill that (also in the same order as they were passed to
+	// newWithdrawal) and no change output.
 	secondTx := w.transactions[1]
-	req2 := requests[1]
-	checkTxOutputs(
-		t, secondTx, []*decoratedTxOut{&decoratedTxOut{request: req2, amount: req2.amount}})
+	wantOutputs := []*decoratedTxOut{
+		&decoratedTxOut{request: requests[1], amount: requests[1].amount},
+		&decoratedTxOut{request: requests[2], amount: requests[2].amount}}
+	checkTxOutputs(t, secondTx, wantOutputs)
+	checkTxInputs(t, secondTx, eligible[1:4])
 }
 
 func TestDecoratedTxRemoveOutput(t *testing.T) {
@@ -953,7 +964,7 @@ func checkTxOutputs(t *testing.T, tx *decoratedTx, outputs []*decoratedTxOut) {
 	}
 	for i, output := range tx.outputs {
 		if !reflect.DeepEqual(output, outputs[i]) {
-			t.Fatalf("Unexpected output; got %#v, want %#v", output, outputs[i])
+			t.Fatalf("Unexpected output; got %s, want %s", output, outputs[i])
 		}
 	}
 }

@@ -200,6 +200,10 @@ type decoratedTxOut struct {
 	amount  btcutil.Amount
 }
 
+// String makes decoratedTxOut satisfy the Stringer interface.
+func (o *decoratedTxOut) String() string {
+	return fmt.Sprintf("decoratedTxOut fulfilling %v of %s", o.amount, o.request)
+}
 func (o *decoratedTxOut) pkScript() []byte {
 	return o.request.pkScript
 }
@@ -282,7 +286,7 @@ func (tx *decoratedTx) toMsgTx() *btcwire.MsgTx {
 
 // addOutput adds a new output to this transaction.
 func (tx *decoratedTx) addOutput(request OutputRequest) {
-	log.Infof("Added output sending %s to %s", request.amount, request.address)
+	log.Debugf("Added tx output sending %s to %s", request.amount, request.address)
 	tx.outputs = append(tx.outputs, &decoratedTxOut{request: request, amount: request.amount})
 }
 
@@ -290,12 +294,13 @@ func (tx *decoratedTx) addOutput(request OutputRequest) {
 func (tx *decoratedTx) removeOutput() *decoratedTxOut {
 	removed := tx.outputs[len(tx.outputs)-1]
 	tx.outputs = tx.outputs[:len(tx.outputs)-1]
+	log.Debugf("Removed tx output sending %s to %s", removed.amount, removed.request.address)
 	return removed
 }
 
 // addInput adds a new input to this transaction.
 func (tx *decoratedTx) addInput(input CreditInterface) {
-	log.Infof("Added input with amount %v", input.Amount())
+	log.Debugf("Added tx input with amount %v", input.Amount())
 	tx.inputs = append(tx.inputs, input)
 }
 
@@ -303,6 +308,7 @@ func (tx *decoratedTx) addInput(input CreditInterface) {
 func (tx *decoratedTx) removeInput() CreditInterface {
 	removed := tx.inputs[len(tx.inputs)-1]
 	tx.inputs = tx.inputs[:len(tx.inputs)-1]
+	log.Debugf("Removed tx input with amount %v", removed.Amount())
 	return removed
 }
 
@@ -327,8 +333,8 @@ func (tx *decoratedTx) addChange(pkScript []byte) bool {
 
 // rollBackLastOutput will roll back the last added output and possibly remove
 // inputs that are no longer needed to cover the remaining outputs. The method
-// returns the removed output and the removed inputs, in the order they were
-// added, if any.
+// returns the removed output and the removed inputs, in the reverse order they
+// were added, if any.
 //
 // The tx needs to have two or more outputs. The case with only one output must
 // be handled separately (by the split output procedure).
@@ -344,13 +350,12 @@ func (tx *decoratedTx) rollBackLastOutput() ([]CreditInterface, *decoratedTxOut,
 	var removedInputs []CreditInterface
 	// Continue until sum(in) < sum(out) + fee
 	for tx.inputTotal() >= tx.outputTotal()+tx.calculateFee() {
-		removed := tx.removeInput()
-		removedInputs = append([]CreditInterface{removed}, removedInputs...)
+		removedInputs = append(removedInputs, tx.removeInput())
 	}
 
-	// Re-add the first item from removedInputs, which is the last popped input.
-	tx.addInput(removedInputs[0])
-	removedInputs = removedInputs[1:]
+	// Re-add the last item from removedInputs, which is the last popped input.
+	tx.addInput(removedInputs[len(removedInputs)-1])
+	removedInputs = removedInputs[:len(removedInputs)-1]
 	return removedInputs, removedOutput, nil
 }
 
@@ -448,22 +453,28 @@ func getTxOutIndex(txout *btcwire.TxOut, msgtx *btcwire.MsgTx) (uint32, error) {
 	return 0, newError(ErrTxOutNotFound, "", nil)
 }
 
+// popRequest removes and returns the first request from the stack of pending
+// requests.
 func (w *withdrawal) popRequest() OutputRequest {
 	request := w.pendingRequests[0]
 	w.pendingRequests = w.pendingRequests[1:]
 	return request
 }
 
+// pushRequest adds a new request to the top of the stack of pending requests.
 func (w *withdrawal) pushRequest(request OutputRequest) {
 	w.pendingRequests = append([]OutputRequest{request}, w.pendingRequests...)
 }
 
+// popInput removes and returns the first input from the stack of eligible
+// inputs.
 func (w *withdrawal) popInput() CreditInterface {
 	input := w.eligibleInputs[0]
 	w.eligibleInputs = w.eligibleInputs[1:]
 	return input
 }
 
+// pushInput adds a new input to the top of the stack of eligible inputs.
 func (w *withdrawal) pushInput(input CreditInterface) {
 	w.eligibleInputs = append([]CreditInterface{input}, w.eligibleInputs...)
 }
@@ -511,8 +522,10 @@ func (w *withdrawal) handleOversizeTx() error {
 		if err != nil {
 			return newError(ErrWithdrawalProcessing, "failed to rollback last output", err)
 		}
-		w.eligibleInputs = append(w.eligibleInputs, inputs...)
-		w.pendingRequests = append(w.pendingRequests, output.request)
+		for _, input := range inputs {
+			w.pushInput(input)
+		}
+		w.pushRequest(output.request)
 	} else if len(w.current.outputs) == 1 {
 		log.Debug("Splitting last output because tx got too big...")
 		w.pushInput(w.current.removeInput())
