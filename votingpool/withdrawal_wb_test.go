@@ -54,7 +54,7 @@ func TestOutputSplittingNotEnoughInputs(t *testing.T) {
 	// If we just started with not enough inputs for the requested outputs,
 	// fulfilOutputs() would drop outputs until we had enough.
 	w.current.calculateFee = TstConstantFee(3)
-	if err := w.fulfilOutputs(); err != nil {
+	if err := w.fulfillRequests(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -100,7 +100,7 @@ func TestOutputSplittingOversizeTx(t *testing.T) {
 	}
 	w.current = w.newDecoratedTx()
 
-	if err := w.fulfilOutputs(); err != nil {
+	if err := w.fulfillRequests(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -318,7 +318,7 @@ func TestWithdrawalTxOutputs(t *testing.T) {
 	}
 
 	w := newWithdrawal(0, outputs, eligible, changeStart)
-	if err := w.fulfilOutputs(); err != nil {
+	if err := w.fulfillRequests(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -352,7 +352,7 @@ func TestFulfilOutputsNoSatisfiableOutputs(t *testing.T) {
 	}
 
 	w := newWithdrawal(0, []OutputRequest{request}, eligible, changeStart)
-	if err := w.fulfilOutputs(); err != nil {
+	if err := w.fulfillRequests(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -393,7 +393,7 @@ func TestFulfilOutputsNotEnoughCreditsForAllRequests(t *testing.T) {
 	}
 
 	w := newWithdrawal(0, outputs, eligible, changeStart)
-	if err := w.fulfilOutputs(); err != nil {
+	if err := w.fulfillRequests(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -775,7 +775,7 @@ func TestTriggerFirstTxTooBigAndRollback(t *testing.T) {
 	}
 	w.current = w.newDecoratedTx()
 
-	if err := w.fulfilOutputs(); err != nil {
+	if err := w.fulfillRequests(); err != nil {
 		t.Fatal("Unexpected error:", err)
 	}
 
@@ -837,7 +837,7 @@ func TestTriggerSecondTxTooBigAndRollback(t *testing.T) {
 	}
 	w.current = w.newDecoratedTx()
 
-	if err := w.fulfilOutputs(); err != nil {
+	if err := w.fulfillRequests(); err != nil {
 		t.Fatal("Unexpected error:", err)
 	}
 

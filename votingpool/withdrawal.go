@@ -384,7 +384,7 @@ func (vp *Pool) Withdrawal(
 	txStore *txstore.Store,
 ) (*WithdrawalStatus, map[string]TxSigs, error) {
 	w := newWithdrawal(roundID, requests, inputs, changeStart)
-	if err := w.fulfilOutputs(); err != nil {
+	if err := w.fulfillRequests(); err != nil {
 		return nil, nil, err
 	}
 	sigs, err := getRawSigs(w.transactions)
@@ -581,9 +581,9 @@ func (w *withdrawal) finalizeCurrentTx() error {
 }
 
 // maybeDropRequests will check the total amount we have in eligible inputs and drop
-// requested outputs (in descending amount order) if we don't have enough to fulfil them
-// all. For every dropped output request we add an entry to w.status.outputs with the
-// status string set to "partial-".
+// requested outputs (in descending amount order) if we don't have enough to
+// fulfill them all. For every dropped output request we update its entry in
+// w.status.outputs with the status string set to "partial-".
 func (w *withdrawal) maybeDropRequests() {
 	inputAmount := btcutil.Amount(0)
 	for _, input := range w.eligibleInputs {
@@ -604,7 +604,7 @@ func (w *withdrawal) maybeDropRequests() {
 	}
 }
 
-func (w *withdrawal) fulfilOutputs() error {
+func (w *withdrawal) fulfillRequests() error {
 	w.maybeDropRequests()
 	if len(w.pendingRequests) == 0 {
 		return nil
