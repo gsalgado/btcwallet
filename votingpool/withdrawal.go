@@ -280,28 +280,30 @@ func (tx *decoratedTx) toMsgTx() *btcwire.MsgTx {
 	return msgtx
 }
 
-func (tx *decoratedTx) addTxOut(request OutputRequest) {
+// addOutput adds a new output to this transaction.
+func (tx *decoratedTx) addOutput(request OutputRequest) {
 	log.Infof("Added output sending %s to %s", request.amount, request.address)
 	tx.outputs = append(tx.outputs, &decoratedTxOut{request: request, amount: request.amount})
 }
 
-// popOutput will pop the last added output and return it.
-func (tx *decoratedTx) popOutput() *decoratedTxOut {
+// removeOutput removes the last added output and returns it.
+func (tx *decoratedTx) removeOutput() *decoratedTxOut {
 	removed := tx.outputs[len(tx.outputs)-1]
 	tx.outputs = tx.outputs[:len(tx.outputs)-1]
 	return removed
 }
 
-// popInput will pop the last added input and return it.
-func (tx *decoratedTx) popInput() CreditInterface {
+// addInput adds a new input to this transaction.
+func (tx *decoratedTx) addInput(input CreditInterface) {
+	log.Infof("Added input with amount %v", input.Amount())
+	tx.inputs = append(tx.inputs, input)
+}
+
+// removeInput removes the last added input and returns it.
+func (tx *decoratedTx) removeInput() CreditInterface {
 	removed := tx.inputs[len(tx.inputs)-1]
 	tx.inputs = tx.inputs[:len(tx.inputs)-1]
 	return removed
-}
-
-func (tx *decoratedTx) addTxIn(input CreditInterface) {
-	log.Infof("Added input with amount %v", input.Amount())
-	tx.inputs = append(tx.inputs, input)
 }
 
 // addChange adds a change output if there are any satoshis left after paying
@@ -337,17 +339,17 @@ func (tx *decoratedTx) rollBackLastOutput() ([]CreditInterface, *decoratedTxOut,
 		return nil, nil, newError(ErrPreconditionNotMet, str, nil)
 	}
 
-	removedOutput := tx.popOutput()
+	removedOutput := tx.removeOutput()
 
 	var removedInputs []CreditInterface
 	// Continue until sum(in) < sum(out) + fee
 	for tx.inputTotal() >= tx.outputTotal()+tx.calculateFee() {
-		removed := tx.popInput()
+		removed := tx.removeInput()
 		removedInputs = append([]CreditInterface{removed}, removedInputs...)
 	}
 
 	// Re-add the first item from removedInputs, which is the last popped input.
-	tx.addTxIn(removedInputs[0])
+	tx.addInput(removedInputs[0])
 	removedInputs = removedInputs[1:]
 	return removedInputs, removedOutput, nil
 }
@@ -475,7 +477,7 @@ func (w *withdrawal) fulfillNextRequest() error {
 	// We start with an output status of success and if anything goes wrong it
 	// will be changed.
 	output.status = "success"
-	w.current.addTxOut(request)
+	w.current.addOutput(request)
 
 	if w.current.isTooBig() {
 		return w.handleOversizeTx()
@@ -490,7 +492,7 @@ func (w *withdrawal) fulfillNextRequest() error {
 			}
 			break
 		}
-		w.current.addTxIn(w.popInput())
+		w.current.addInput(w.popInput())
 		fee = w.current.calculateFee()
 
 		if w.current.isTooBig() {
@@ -513,7 +515,7 @@ func (w *withdrawal) handleOversizeTx() error {
 		w.pendingRequests = append(w.pendingRequests, output.request)
 	} else if len(w.current.outputs) == 1 {
 		log.Debug("Splitting last output because tx got too big...")
-		w.pushInput(w.current.popInput())
+		w.pushInput(w.current.removeInput())
 		if err := w.splitLastOutput(); err != nil {
 			return err
 		}

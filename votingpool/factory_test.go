@@ -55,12 +55,12 @@ func createDecoratedTx(t *testing.T, pool *Pool, store *txstore.Store, inputAmou
 	tx := newDecoratedTx()
 	_, credits := TstCreateCredits(t, pool, inputAmounts, store)
 	for _, c := range credits {
-		tx.addTxIn(c)
+		tx.addInput(c)
 	}
 	for i, amount := range outputAmounts {
 		request := TstNewOutputRequest(
 			t, uint32(i), "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", btcutil.Amount(amount), net)
-		tx.addTxOut(request)
+		tx.addOutput(request)
 	}
 	return tx
 }
