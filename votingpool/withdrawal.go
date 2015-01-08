@@ -56,6 +56,11 @@ startwithdrawal, we'll need a janitor process that eventually releases those if 
 transactions are never confirmed.
 
 */
+
+// Maximum tx size (in bytes). This should be the same as bitcoind's
+// MAX_STANDARD_TX_SIZE.
+const txMaxSize = 100000
+
 var log btclog.Logger
 
 func init() {
@@ -226,6 +231,10 @@ type decoratedTx struct {
 	// purposes.
 	isTooBig func() bool
 
+	// calculateSize is a member of the structure so it can be replaced for testing
+	// purposes.
+	calculateSize func() int
+
 	// changeOutput holds information about the change for this transaction.
 	changeOutput *btcwire.TxOut
 }
@@ -237,7 +246,13 @@ func newDecoratedTx() *decoratedTx {
 		return btcutil.Amount(1)
 	}
 	tx.isTooBig = func() bool {
-		return isTooBig(tx)
+		// In bitcoind a tx is considered standard only if smaller than
+		// MAX_STANDARD_TX_SIZE; that's why we consider anything >= txMaxSize to
+		// be too big.
+		return tx.calculateSize() >= txMaxSize
+	}
+	tx.calculateSize = func() int {
+		return calculateSize(tx)
 	}
 	return tx
 }
@@ -357,11 +372,6 @@ func (tx *decoratedTx) rollBackLastOutput() ([]CreditInterface, *decoratedTxOut,
 	tx.addInput(removedInputs[len(removedInputs)-1])
 	removedInputs = removedInputs[:len(removedInputs)-1]
 	return removedInputs, removedOutput, nil
-}
-
-func isTooBig(tx *decoratedTx) bool {
-	// TODO: Implement me!
-	return estimateSize(tx) > 1000
 }
 
 func newWithdrawal(roundID uint32, requests []OutputRequest, inputs []CreditInterface,
@@ -862,7 +872,7 @@ func validateSigScript(msgtx *btcwire.MsgTx, idx int, pkScript []byte) error {
 	return nil
 }
 
-func estimateSize(tx *decoratedTx) uint32 {
+func calculateSize(tx *decoratedTx) int {
 	// TODO: Implement me
 	// This function could estimate the size given the number of inputs/outputs, similarly
 	// to estimateTxSize() (in createtx.go), or it could copy the tx, add a stub change

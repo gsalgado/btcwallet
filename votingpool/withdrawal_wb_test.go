@@ -922,6 +922,33 @@ func TestGetRawSigsInvalidAddrBranch(t *testing.T) {
 	TstCheckError(t, "", err, ErrInvalidBranch)
 }
 
+func TestTxTooBig(t *testing.T) {
+	tearDown, pool, store := TstCreatePoolAndTxStore(t)
+	defer tearDown()
+
+	tx := createDecoratedTx(t, pool, store, []int64{5}, []int64{1})
+
+	tx.calculateSize = func() int { return txMaxSize - 1 }
+	if tx.isTooBig() {
+		t.Fatalf("Tx is smaller than max size (%d < %d) but was considered too big",
+			tx.calculateSize(), txMaxSize)
+	}
+
+	// A tx whose size is equal to txMaxSize should be considered too big.
+	tx.calculateSize = func() int { return txMaxSize }
+	if !tx.isTooBig() {
+		t.Fatalf("Tx size is equal to the max size (%d == %d) but was not considered too big",
+			tx.calculateSize(), txMaxSize)
+	}
+
+	tx.calculateSize = func() int { return txMaxSize + 1 }
+	if !tx.isTooBig() {
+		t.Fatalf("Tx size is bigger than max size (%d > %d) but was not considered too big",
+			tx.calculateSize(), txMaxSize)
+	}
+
+}
+
 // lookupStoredTx returns the TxRecord from the given store whose SHA matches the
 // given ShaHash.
 func lookupStoredTx(store *txstore.Store, sha *btcwire.ShaHash) *txstore.TxRecord {
