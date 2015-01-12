@@ -991,6 +991,34 @@ func TestTxSizeCalculation(t *testing.T) {
 	}
 }
 
+func TestTxFeeEstimationForSmallTx(t *testing.T) {
+	tx := newDecoratedTx()
+
+	// A tx that is smaller than 1000 bytes in size should have a fee of 10000
+	// satoshis.
+	tx.calculateSize = func() int { return 999 }
+	fee := tx.calculateFee()
+
+	wantFee := btcutil.Amount(1e3)
+	if fee != wantFee {
+		t.Fatalf("Unexpected tx fee; got %v, want %v", fee, wantFee)
+	}
+}
+
+func TestTxFeeEstimationForLargeTx(t *testing.T) {
+	tx := newDecoratedTx()
+
+	// A tx that is larger than 1000 bytes in size should have a fee of 1e3
+	// satoshis plus 1e3 for every 1000 bytes.
+	tx.calculateSize = func() int { return 3000 }
+	fee := tx.calculateFee()
+
+	wantFee := btcutil.Amount(4e3)
+	if fee != wantFee {
+		t.Fatalf("Unexpected tx fee; got %v, want %v", fee, wantFee)
+	}
+}
+
 // lookupStoredTx returns the TxRecord from the given store whose SHA matches the
 // given ShaHash.
 func lookupStoredTx(store *txstore.Store, sha *btcwire.ShaHash) *txstore.TxRecord {

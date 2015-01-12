@@ -62,6 +62,10 @@ transactions are never confirmed.
 // MAX_STANDARD_TX_SIZE.
 const txMaxSize = 100000
 
+// feeIncrement is the minimum transation fee (0.00001 BTC, measured in satoshis)
+// added to transactions requiring a fee.
+const feeIncrement = 1e3
+
 var log btclog.Logger
 
 func init() {
@@ -243,8 +247,7 @@ type decoratedTx struct {
 func newDecoratedTx() *decoratedTx {
 	tx := &decoratedTx{}
 	tx.calculateFee = func() btcutil.Amount {
-		// TODO:
-		return btcutil.Amount(1)
+		return btcutil.Amount(1+tx.calculateSize()/1000) * feeIncrement
 	}
 	tx.isTooBig = func() bool {
 		// In bitcoind a tx is considered standard only if smaller than

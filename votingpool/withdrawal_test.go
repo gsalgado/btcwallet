@@ -62,10 +62,11 @@ func TestWithdrawal(t *testing.T) {
 	// Check that all outputs were successfully fulfilled.
 	checkWithdrawalOutputs(t, status, map[string]btcutil.Amount{address1: 4e6, address2: 1e6})
 
-	// XXX: The ntxid is deterministic so we hardcode it here, but if the test is changed
-	// in a way that causes the generated transactions to change (e.g. different
-	// inputs/outputs), the ntxid will change too.
-	ntxid := "9d306fd97c8cdb371db0e441b023ede36c2e50e203e0ff6577a4d951269e3915"
+	// XXX: The ntxid is deterministic so we hardcode it here, but if the test
+	// or the code is changed in a way that causes the generated transaction to
+	// change (e.g. different inputs/outputs), the ntxid will change too and
+	// this will have to be updated.
+	ntxid := "eb753083db55bd0ad2eb184bfd196a7ea8b90eaa000d9293e892999695af2519"
 	txSigs := sigs[ntxid]
 
 	// Finally we use SignTx() to construct the SignatureScripts (using the raw
