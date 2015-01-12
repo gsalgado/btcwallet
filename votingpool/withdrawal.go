@@ -17,6 +17,7 @@
 package votingpool
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"sort"
@@ -279,20 +280,17 @@ func (tx *decoratedTx) hasChange() bool {
 	return tx.changeOutput != nil
 }
 
-// toMsgTx generates a btcwire.MsgTx.
+// toMsgTx generates a btcwire.MsgTx with this tx's inputs and outputs.
 func (tx *decoratedTx) toMsgTx() *btcwire.MsgTx {
 	msgtx := btcwire.NewMsgTx()
-	// Add outputs.
 	for _, o := range tx.outputs {
 		msgtx.AddTxOut(btcwire.NewTxOut(int64(o.amount), o.pkScript()))
 	}
 
-	// Add change output.
 	if tx.hasChange() {
 		msgtx.AddTxOut(tx.changeOutput)
 	}
 
-	// Add inputs.
 	for _, i := range tx.inputs {
 		msgtx.AddTxIn(btcwire.NewTxIn(i.OutPoint(), nil))
 	}
@@ -872,10 +870,33 @@ func validateSigScript(msgtx *btcwire.MsgTx, idx int, pkScript []byte) error {
 	return nil
 }
 
+// calculateSize returns an estimate of the serialized size (in bytes) of the
+// given transaction. It assumes all tx inputs are P2SH multi-sig.
 func calculateSize(tx *decoratedTx) int {
-	// TODO: Implement me
-	// This function could estimate the size given the number of inputs/outputs, similarly
-	// to estimateTxSize() (in createtx.go), or it could copy the tx, add a stub change
-	// output, fill the SignatureScript for every input and serialize it.
-	return 0
+	msgtx := tx.toMsgTx()
+	// Assume that there will always be a change output, for simplicity. We
+	// simulate that by simply copying the first output as all we care about is
+	// the size of its serialized form, which should be the same for all of them
+	// as they're either P2PKH or P2SH..
+	if !tx.hasChange() {
+		msgtx.AddTxOut(msgtx.TxOut[0])
+	}
+	// Craft a SignatureScript with dummy signatures for every input in this tx
+	// so that we can use msgtx.SerializeSize() to get its size and don't need
+	// to rely on estimations. Notice that we use 73 as the signature length as
+	// that's the maximum length they may have[1]. Because of that the size
+	// returned here can be up to 2 bytes bigger for every signature in every
+	// input.
+	// [1] https://en.bitcoin.it/wiki/Elliptic_Curve_Digital_Signature_Algorithm
+	dummySig := bytes.Repeat([]byte{1}, 73)
+	for i, txin := range msgtx.TxIn {
+		addr := tx.inputs[i].Address()
+		sigScript := btcscript.NewScriptBuilder().AddOp(btcscript.OP_FALSE)
+		for c := 0; c < int(addr.Series().reqSigs); c++ {
+			sigScript.AddData(dummySig)
+		}
+		sigScript.AddData(addr.RedeemScript())
+		txin.SignatureScript = sigScript.Script()
+	}
+	return msgtx.SerializeSize()
 }

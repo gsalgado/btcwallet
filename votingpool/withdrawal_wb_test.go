@@ -949,6 +949,48 @@ func TestTxTooBig(t *testing.T) {
 
 }
 
+func TestTxSizeCalculation(t *testing.T) {
+	tearDown, pool, store := TstCreatePoolAndTxStore(t)
+	defer tearDown()
+
+	tx := createDecoratedTx(t, pool, store, []int64{1, 5}, []int64{2})
+	tx.calculateFee = TstConstantFee(1)
+
+	size := tx.calculateSize()
+
+	// Now add a change output, get a msgtx, sign it and get its SerializedSize
+	// to compare with the value above.
+	seriesID := tx.inputs[0].Address().SeriesID()
+	tx.addChange(newChangeAddress(t, pool, seriesID, 0).Addr().ScriptAddress())
+	msgtx := tx.toMsgTx()
+	sigs, err := getRawSigs([]*decoratedTx{tx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	signTxAndValidate(t, pool.Manager(), msgtx, sigs[Ntxid(msgtx)], tx.inputs)
+
+	// ECDSA signatures have variable length (71-73 bytes) but in
+	// calculateSize() we use a dummy signature for the worst-case scenario (73
+	// bytes) so the estimate here can be up to 2 bytes bigger for every
+	// signature in every input's SigScript.
+	maxDiff := 2 * len(msgtx.TxIn) * int(tx.inputs[0].Address().Series().reqSigs)
+	// To make things worse, there's a possibility that the length of the
+	// actual SignatureScript is at the upper boundary of one of the uint*
+	// types, and when that happens our dummy SignatureScript is likely to have
+	// a length that cannot be represented in the same uint* type as that of the
+	// actual one, so we need to account for that here too. As per
+	// btcwire.VarIntSerializeSize(), the biggest difference would be of 4
+	// bytes, when the actual SigScript size fits in a uint32 but the dummy one
+	// needs a uint64.
+	maxDiff += 4 * len(msgtx.TxIn)
+	if size-msgtx.SerializeSize() > maxDiff {
+		t.Fatalf("Size difference bigger than maximum expected: %d - %d > %d",
+			size, msgtx.SerializeSize(), maxDiff)
+	} else if size-msgtx.SerializeSize() < 0 {
+		t.Fatalf("Tx size (%d) bigger than estimated size (%d)", msgtx.SerializeSize(), size)
+	}
+}
+
 // lookupStoredTx returns the TxRecord from the given store whose SHA matches the
 // given ShaHash.
 func lookupStoredTx(store *txstore.Store, sha *btcwire.ShaHash) *txstore.TxRecord {
