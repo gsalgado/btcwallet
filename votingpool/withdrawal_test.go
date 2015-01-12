@@ -26,9 +26,6 @@ import (
 	"github.com/conformal/btcwire"
 )
 
-// XXX: This test could benefit from being split into smaller ones, but that won't be a
-// trivial endeavour. Or maybe it should be turned into an example and all the checks here
-// moved into separate, whitebox tests.
 func TestWithdrawal(t *testing.T) {
 	tearDown, pool, store := vp.TstCreatePoolAndTxStore(t)
 	defer tearDown()
@@ -62,7 +59,7 @@ func TestWithdrawal(t *testing.T) {
 	// Check that all outputs were successfully fulfilled.
 	checkWithdrawalOutputs(t, status, map[string]btcutil.Amount{address1: 4e6, address2: 1e6})
 
-	// XXX: The ntxid is deterministic so we hardcode it here, but if the test
+	// NOTE: The ntxid is deterministic so we hardcode it here, but if the test
 	// or the code is changed in a way that causes the generated transaction to
 	// change (e.g. different inputs/outputs), the ntxid will change too and
 	// this will have to be updated.

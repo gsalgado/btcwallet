@@ -164,7 +164,6 @@ func (o *WithdrawalOutput) Outpoints() []OutBailmentOutpoint {
 }
 
 // OutBailmentOutpoint represents one of the outpoints created to fulfil an OutputRequest.
-// XXX: This is a horrible name, really.
 type OutBailmentOutpoint struct {
 	ntxid  string
 	index  uint32
@@ -392,8 +391,6 @@ func newWithdrawal(roundID uint32, requests []OutputRequest, inputs []CreditInte
 	}
 }
 
-// XXX: This should actually get the input start/stop addresses and pass them on to
-// getEligibleInputs().
 func (vp *Pool) Withdrawal(
 	roundID uint32,
 	requests []OutputRequest,
@@ -427,9 +424,6 @@ func (vp *Pool) Withdrawal(
 func storeTransactions(txStore *txstore.Store, transactions []*decoratedTx) error {
 	for _, tx := range transactions {
 		msgtx := tx.toMsgTx()
-		// XXX(lars): replaced tx.msgtx with tx.toMsgTx here.  not sure if
-		// that's the right thing to do performancewise. We could store the
-		// generated msgtxs somewhere.
 		txr, err := txStore.InsertTx(btcutil.NewTx(msgtx), nil)
 		if err != nil {
 			return err
@@ -720,9 +714,6 @@ func getRawSigs(transactions []*decoratedTx) (map[string]TxSigs, error) {
 	sigs := make(map[string]TxSigs)
 	for _, tx := range transactions {
 		txSigs := make(TxSigs, len(tx.inputs))
-		// XXX(lars): replaced an msgtx instance with toMsgTx() which is hardly
-		// good for performance. This should be replaced with something else at
-		// some point.
 		msgtx := tx.toMsgTx()
 		ntxid := Ntxid(msgtx)
 		for inputIdx, input := range tx.inputs {
@@ -780,9 +771,6 @@ func getRawSigs(transactions []*decoratedTx) (map[string]TxSigs, error) {
 // manager) the redeem script for each of them and constructing the signature
 // script using that and the given raw signatures.
 // This function must be called with the manager unlocked.
-// XXX: This assumes that the voting pool deposit script was imported into
-// waddrmgr, which is currently not done automatically when we generate a new
-// deposit script/address.
 func SignTx(msgtx *btcwire.MsgTx, sigs TxSigs, mgr *waddrmgr.Manager, store *txstore.Store) error {
 	for i, txIn := range msgtx.TxIn {
 		txOut, err := store.UnconfirmedSpent(txIn.PreviousOutPoint)
