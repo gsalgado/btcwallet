@@ -341,7 +341,7 @@ func (tx *decoratedTx) addChange(pkScript []byte) bool {
 		tx.outputTotal(), tx.fee)
 	if change > 0 {
 		tx.changeOutput = btcwire.NewTxOut(int64(change), pkScript)
-		log.Infof("Added change output with amount %v", change)
+		log.Debugf("Added change output with amount %v", change)
 	}
 	return tx.hasChange()
 }
@@ -744,7 +744,7 @@ func getRawSigs(transactions []*decoratedTx) (map[string]TxSigs, error) {
 					if err != nil {
 						return nil, newError(ErrKeyChain, "failed to obtain ECPrivKey", err)
 					}
-					log.Infof("Signing input %d of tx %s with privkey of %s",
+					log.Debugf("Signing input %d of tx %s with privkey of %s",
 						inputIdx, ntxid, pubKey.String())
 					sig, err = btcscript.RawTxInSignature(
 						msgtx, inputIdx, redeemScript, btcscript.SigHashAll, ecPrivKey)
@@ -753,7 +753,7 @@ func getRawSigs(transactions []*decoratedTx) (map[string]TxSigs, error) {
 							ErrRawSigning, "failed to generate raw signature", err)
 					}
 				} else {
-					log.Infof(
+					log.Debugf(
 						"Not signing input %d of %s because private key for %s is "+
 							"not available: %v", inputIdx, ntxid, pubKey.String(), err)
 					sig = []byte{}
