@@ -17,14 +17,25 @@
 package votingpool
 
 import (
+	"fmt"
+	"os"
 	"runtime"
 	"testing"
 
+	"github.com/conformal/btclog"
 	"github.com/conformal/btcwallet/waddrmgr"
 )
 
 func init() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	// Enable logging (Debug level) to aid debugging failing tests.
+	logger, err := btclog.NewLoggerFromWriter(os.Stdout, btclog.DebugLvl)
+	if err != nil {
+		fmt.Printf("Failed to initialize stdout logger: %v\n", err)
+		os.Exit(1)
+	}
+	UseLogger(logger)
 }
 
 // TstCheckError ensures the passed error is a votingpool.Error with an error

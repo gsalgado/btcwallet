@@ -19,10 +19,8 @@ package votingpool
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"sort"
 
-	"github.com/conformal/btclog"
 	"github.com/conformal/btcscript"
 	"github.com/conformal/btcutil"
 	"github.com/conformal/btcwallet/txstore"
@@ -65,13 +63,6 @@ const txMaxSize = 100000
 // feeIncrement is the minimum transation fee (0.00001 BTC, measured in satoshis)
 // added to transactions requiring a fee.
 const feeIncrement = 1e3
-
-var log btclog.Logger
-
-func init() {
-	// XXX: Make it possible to switch this on/off like in txstore/log.go
-	log, _ = btclog.NewLoggerFromWriter(os.Stdout, btclog.DebugLvl)
-}
 
 type WithdrawalStatus struct {
 	nextInputStart  WithdrawalAddress
