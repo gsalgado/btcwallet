@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	minConf int = 100
+	minConf = 100
 
 	// random small number of satoshis used as dustThreshold
 	dustThreshold btcutil.Amount = 1e4
@@ -288,9 +288,9 @@ func TestGetEligibleInputsFromSeries(t *testing.T) {
 func TestEligibleInputsAreEligible(t *testing.T) {
 	tearDown, pool, store := vp.TstCreatePoolAndTxStore(t)
 	defer tearDown()
-	var seriesID uint32 = 0
-	var branch vp.Branch = 0
-	var index vp.Index = 0
+	seriesID := uint32(0)
+	branch := vp.Branch(0)
+	index := vp.Index(0)
 
 	// create the series
 	series := []vp.TstSeriesDef{
@@ -316,9 +316,9 @@ func TestNonEligibleInputsAreNotEligible(t *testing.T) {
 	store2, storeTearDown2 := vp.TstCreateTxStore(t)
 	defer tearDown()
 	defer storeTearDown2()
-	var seriesID uint32 = 0
-	var branch vp.Branch = 0
-	var index vp.Index = 0
+	seriesID := uint32(0)
+	branch := vp.Branch(0)
+	index := vp.Index(0)
 
 	// create the series
 	series := []vp.TstSeriesDef{
