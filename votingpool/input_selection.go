@@ -2,7 +2,6 @@ package votingpool
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"sort"
 
@@ -30,36 +29,29 @@ type Credit struct {
 	addr WithdrawalAddress
 }
 
-func NewCredit(credit txstore.Credit, addr WithdrawalAddress) Credit {
-	return Credit{Credit: credit, addr: addr}
+// NewCredit initialises a new Credit.
+func NewCredit(credit txstore.Credit, addr WithdrawalAddress) *Credit {
+	return &Credit{Credit: credit, addr: addr}
 }
 
-func (c Credit) String() string {
+func (c *Credit) String() string {
 	return fmt.Sprintf("Credit of %v to %v", c.Amount(), c.Address())
 }
 
 // TxSha returns the sha hash of the underlying transaction.
-func (c Credit) TxSha() *btcwire.ShaHash {
+func (c *Credit) TxSha() *btcwire.ShaHash {
 	return c.Credit.TxRecord.Tx().Sha()
 }
 
 // OutputIndex returns the outputindex of the ouput in the underlying
 // transaction.
-func (c Credit) OutputIndex() uint32 {
+func (c *Credit) OutputIndex() uint32 {
 	return c.Credit.OutputIndex
 }
 
 // Address returns the voting pool address.
-func (c Credit) Address() WithdrawalAddress {
+func (c *Credit) Address() WithdrawalAddress {
 	return c.addr
-}
-
-// newCredit initialises a new Credit.
-func newCredit(credit txstore.Credit, addr WithdrawalAddress) Credit {
-	return Credit{
-		Credit: credit,
-		addr:   addr,
-	}
 }
 
 // Credits is a type defined as a slice of CreditInterface
@@ -200,7 +192,7 @@ func (vp *Pool) getEligibleInputsFromSeries(store *txstore.Store,
 				var eligibles Credits
 				for _, c := range candidates {
 					if vp.isCreditEligible(c, minConf, chainHeight, dustThreshold) {
-						vpc := newCredit(c, *addr)
+						vpc := NewCredit(c, *addr)
 						eligibles = append(eligibles, vpc)
 						totalAmount += vpc.Amount()
 						if totalAmount >= limit {
@@ -224,28 +216,24 @@ func (vp *Pool) getEligibleInputsFromSeries(store *txstore.Store,
 // groupCreditsByAddr converts a slice of credits to a map from the
 // string representation of an encoded address to the unspent outputs
 // associated with that address.
-func groupCreditsByAddr(utxos []txstore.Credit, net *btcnet.Params) (map[string][]txstore.Credit, error) {
+func groupCreditsByAddr(credits []txstore.Credit, net *btcnet.Params) (map[string][]txstore.Credit, error) {
 	addrMap := make(map[string][]txstore.Credit)
-	for _, o := range utxos {
-		_, addrs, _, err := o.Addresses(net)
+	for _, c := range credits {
+		_, addrs, _, err := c.Addresses(net)
 		if err != nil {
 			return nil, err
 		}
-		// As our utxos are all scripthashes we should never have more
-		// than one address per output, so let's error out if that
+		// As our credits are all P2SH we should never have more
+		// than one address per credit, so let's error out if that
 		// assumption is violated.
 		if len(addrs) != 1 {
-			// TODO: This should probably be a VotingPoolError, but
-			// this function only exists because we don't have a good
-			// way to lookup credits by addr on the store, and this
-			// will most likely change, so leaving it for now.
-			return nil, errors.New("one address per unspent output assumption violated")
+			return nil, newError(ErrInputSelection, "credit has more than one address", nil)
 		}
 		encAddr := addrs[0].EncodeAddress()
 		if v, ok := addrMap[encAddr]; ok {
-			addrMap[encAddr] = append(v, o)
+			addrMap[encAddr] = append(v, c)
 		} else {
-			addrMap[encAddr] = []txstore.Credit{o}
+			addrMap[encAddr] = []txstore.Credit{c}
 		}
 	}
 

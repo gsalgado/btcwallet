@@ -420,10 +420,6 @@ func TestAddressRange(t *testing.T) {
 
 // TstFakeCredit is a structure implementing the CreditInterface used
 // for testing purposes.
-//
-// XXX(lars): we should maybe change all the value receivers to
-// pointer receivers so we do not mix. That would mean we'd have to
-// change the CreditInterface and implementations as well.
 type TstFakeCredit struct {
 	addr        vp.WithdrawalAddress
 	txid        *btcwire.ShaHash
@@ -431,31 +427,31 @@ type TstFakeCredit struct {
 	amount      btcutil.Amount
 }
 
-func (c TstFakeCredit) String() string {
+func (c *TstFakeCredit) String() string {
 	return ""
 }
 
-func (c TstFakeCredit) TxSha() *btcwire.ShaHash {
+func (c *TstFakeCredit) TxSha() *btcwire.ShaHash {
 	return c.txid
 }
 
-func (c TstFakeCredit) OutputIndex() uint32 {
+func (c *TstFakeCredit) OutputIndex() uint32 {
 	return c.outputIndex
 }
 
-func (c TstFakeCredit) Address() vp.WithdrawalAddress {
+func (c *TstFakeCredit) Address() vp.WithdrawalAddress {
 	return c.addr
 }
 
-func (c TstFakeCredit) Amount() btcutil.Amount {
+func (c *TstFakeCredit) Amount() btcutil.Amount {
 	return c.amount
 }
 
-func (c TstFakeCredit) TxOut() *btcwire.TxOut {
+func (c *TstFakeCredit) TxOut() *btcwire.TxOut {
 	return nil
 }
 
-func (c TstFakeCredit) OutPoint() *btcwire.OutPoint {
+func (c *TstFakeCredit) OutPoint() *btcwire.OutPoint {
 	return &btcwire.OutPoint{Hash: *c.txid, Index: c.outputIndex}
 }
 
@@ -464,14 +460,14 @@ func (c *TstFakeCredit) SetAmount(amount btcutil.Amount) *TstFakeCredit {
 	return c
 }
 
-func TstNewFakeCredit(t *testing.T, pool *vp.Pool, series uint32, index vp.Index, branch vp.Branch, txid []byte, outputIdx int) TstFakeCredit {
+func TstNewFakeCredit(t *testing.T, pool *vp.Pool, series uint32, index vp.Index, branch vp.Branch, txid []byte, outputIdx int) *TstFakeCredit {
 	var hash btcwire.ShaHash
 	copy(hash[:], txid)
 	addr, err := pool.WithdrawalAddress(series, branch, index)
 	if err != nil {
 		t.Fatalf("WithdrawalAddress failed: %v", err)
 	}
-	return TstFakeCredit{
+	return &TstFakeCredit{
 		addr:        *addr,
 		txid:        &hash,
 		outputIndex: uint32(outputIdx),
