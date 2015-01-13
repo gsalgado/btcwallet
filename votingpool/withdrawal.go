@@ -83,6 +83,16 @@ func (u byAmount) Len() int           { return len(u) }
 func (u byAmount) Less(i, j int) bool { return u[i].amount < u[j].amount }
 func (u byAmount) Swap(i, j int)      { u[i], u[j] = u[j], u[i] }
 
+// byOutBailmentID defines the methods needed to satisify sort.Interface to sort
+// a slice of OutputRequests by their outBailmentIDHash.
+type byOutBailmentID []OutputRequest
+
+func (s byOutBailmentID) Len() int      { return len(s) }
+func (s byOutBailmentID) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+func (s byOutBailmentID) Less(i, j int) bool {
+	return bytes.Compare(s[i].outBailmentIDHash(), s[j].outBailmentIDHash()) < 0
+}
+
 // OutputRequest represents one of the outputs (address/amount) requested by a
 // withdrawal, and includes information about the user's outbailment request.
 type OutputRequest struct {
