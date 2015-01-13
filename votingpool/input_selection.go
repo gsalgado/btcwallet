@@ -148,14 +148,18 @@ func (r AddressRange) NumAddresses() (uint64, error) {
 //
 // XXX(lars): We might want to return []txstore.Credit instead of
 // Credits. The caller has no use of getting the sortable type.
-func (vp *Pool) getEligibleInputs(store *txstore.Store,
+func (vp *Pool) getEligibleInputs(
+	store *txstore.Store,
 	ranges []AddressRange,
-	dustThreshold btcutil.Amount, chainHeight int32,
-	minConf int) (Credits, error) {
+	dustThreshold btcutil.Amount,
+	chainHeight int32,
+	minConf int,
+	limit btcutil.Amount) (Credits, error) {
 
 	var inputs Credits
 	for _, r := range ranges {
-		credits, err := vp.getEligibleInputsFromSeries(store, r, dustThreshold, chainHeight, minConf)
+		credits, err := vp.getEligibleInputsFromSeries(
+			store, r, dustThreshold, chainHeight, minConf, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -172,7 +176,7 @@ func (vp *Pool) getEligibleInputs(store *txstore.Store,
 func (vp *Pool) getEligibleInputsFromSeries(store *txstore.Store,
 	aRange AddressRange,
 	dustThreshold btcutil.Amount, chainHeight int32,
-	minConf int) (Credits, error) {
+	minConf int, limit btcutil.Amount) (Credits, error) {
 	unspents, err := store.UnspentOutputs()
 	if err != nil {
 		return nil, newError(ErrInputSelection, "failed to get unspent outputs", err)
@@ -182,6 +186,7 @@ func (vp *Pool) getEligibleInputsFromSeries(store *txstore.Store,
 	if err != nil {
 		return nil, newError(ErrInputSelection, "grouping credits by address failed", err)
 	}
+	totalAmount := btcutil.Amount(0)
 	var inputs Credits
 	for index := aRange.StartIndex; index <= aRange.StopIndex; index++ {
 		for branch := aRange.StartBranch; branch <= aRange.StopBranch; branch++ {
@@ -197,11 +202,18 @@ func (vp *Pool) getEligibleInputsFromSeries(store *txstore.Store,
 					if vp.isCreditEligible(c, minConf, chainHeight, dustThreshold) {
 						vpc := newCredit(c, *addr)
 						eligibles = append(eligibles, vpc)
+						totalAmount += vpc.Amount()
+						if totalAmount >= limit {
+							break
+						}
 					}
 				}
 				// Make sure the eligibles are correctly sorted.
 				sort.Sort(eligibles)
 				inputs = append(inputs, eligibles...)
+				if totalAmount >= limit {
+					return inputs, nil
+				}
 			}
 		}
 	}
@@ -257,8 +269,8 @@ func (vp *Pool) isCreditEligible(c txstore.Credit, minConf int, chainHeight int3
 	return true
 }
 
-// isCharterInput - TODO: In order to determine this, we need the txid
-// and the output index of the current charter output
+// isCharterOutput - TODO: In order to determine this, we need the txid
+// and the output index of the current charter output, which we don't have yet.
 func (vp *Pool) isCharterOutput(c txstore.Credit) bool {
 	return false
 }

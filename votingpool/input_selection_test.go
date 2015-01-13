@@ -159,8 +159,9 @@ func TestGetEligibleInputs(t *testing.T) {
 	}
 
 	// Call InputSelection on the range.
+	totalAmount := btcutil.Amount(len(inputs)) * inputs[0].Amount()
 	eligibles, err := pool.TstGetEligibleInputs(
-		store, aRanges, dustThreshold, int32(chainHeight), minConf)
+		store, aRanges, dustThreshold, int32(chainHeight), minConf, totalAmount)
 	if err != nil {
 		t.Fatal("InputSelection failed:", err)
 	}
@@ -178,6 +179,52 @@ func TestGetEligibleInputs(t *testing.T) {
 
 	// Check that all credits are unique
 	checkUniqueness(t, eligibles)
+}
+
+func TestGetEligibleInputsAmountLimit(t *testing.T) {
+	tearDown, pool, store := vp.TstCreatePoolAndTxStore(t)
+	defer tearDown()
+
+	seriesID := uint32(0)
+	aRanges := []vp.AddressRange{
+		{
+			SeriesID:    seriesID,
+			StartBranch: 0,
+			StopBranch:  3,
+			StartIndex:  0,
+			StopIndex:   4,
+		},
+	}
+	vp.TstCreateSeries(t, pool, []vp.TstSeriesDef{
+		{ReqSigs: 2, PubKeys: []string{pubKey1, pubKey2, pubKey3}, SeriesID: seriesID}})
+	scripts := createScripts(t, pool.Manager(), pool, aRanges)
+	// Create one eligible input on every address in the range above.
+	oldChainHeight := 11112
+	chainHeight := oldChainHeight + minConf + 10
+	var inputs []txstore.Credit
+	for i := 0; i < len(scripts); i++ {
+		blockIndex := int(i) + 1
+		created := vp.TstCreateInputsOnBlock(t, store, blockIndex, oldChainHeight,
+			scripts[i], []int64{int64(dustThreshold + 1)})
+		inputs = append(inputs, created...)
+	}
+
+	// Call getEligibleInputs() with an upper amount limit of half the total of
+	// all credits we created above.
+	amountTotal := btcutil.Amount(len(inputs)) * (dustThreshold + 1)
+	eligibles, err := pool.TstGetEligibleInputs(
+		store, aRanges, dustThreshold, int32(chainHeight), minConf, amountTotal/2)
+	if err != nil {
+		t.Fatal("InputSelection failed:", err)
+	}
+
+	// All our credits have the same amount, and we limited to half of their
+	// total amount above, so here we should get half of the credits as
+	// eligible.
+	if len(eligibles) != len(inputs)/2 {
+		t.Fatalf("Unexpected number of eligible inputs; got %d, want %d", len(eligibles),
+			len(inputs)/2)
+	}
 }
 
 func TestGetEligibleInputsFromSeries(t *testing.T) {
@@ -216,8 +263,9 @@ func TestGetEligibleInputsFromSeries(t *testing.T) {
 	}
 
 	// Call InputSelection on the range.
+	totalAmount := btcutil.Amount(len(inputs)) * inputs[0].Amount()
 	eligibles, err := pool.TstGetEligibleInputsFromSeries(
-		store, aRange, dustThreshold, int32(currentChainHeight), minConf)
+		store, aRange, dustThreshold, int32(currentChainHeight), minConf, totalAmount)
 	if err != nil {
 		t.Fatal("InputSelection failed:", err)
 	}

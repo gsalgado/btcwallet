@@ -129,8 +129,9 @@ func (vp *Pool) TstIsCreditEligible(c txstore.Credit, minConf int, chainHeight i
 func (vp *Pool) TstGetEligibleInputsFromSeries(store *txstore.Store,
 	aRange AddressRange,
 	dustThreshold btcutil.Amount, chainHeight int32,
-	minConf int) (Credits, error) {
-	return vp.getEligibleInputsFromSeries(store, aRange, dustThreshold, chainHeight, minConf)
+	minConf int, limit btcutil.Amount) (Credits, error) {
+	return vp.getEligibleInputsFromSeries(
+		store, aRange, dustThreshold, chainHeight, minConf, limit)
 }
 
 // TstGetEligibleInputs exposes the private votingpool method
@@ -138,6 +139,6 @@ func (vp *Pool) TstGetEligibleInputsFromSeries(store *txstore.Store,
 func (vp *Pool) TstGetEligibleInputs(store *txstore.Store,
 	aRanges []AddressRange,
 	dustThreshold btcutil.Amount, chainHeight int32,
-	minConf int) (Credits, error) {
-	return vp.getEligibleInputs(store, aRanges, dustThreshold, chainHeight, minConf)
+	minConf int, limit btcutil.Amount) (Credits, error) {
+	return vp.getEligibleInputs(store, aRanges, dustThreshold, chainHeight, minConf, limit)
 }
