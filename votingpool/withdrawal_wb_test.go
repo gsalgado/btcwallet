@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014 Conformal Systems LLC <info@conformal.com>
+ * Copyright (c) 2015 Conformal Systems LLC <info@conformal.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -922,7 +922,7 @@ func TestGetRawSigsInvalidAddrBranch(t *testing.T) {
 	TstCheckError(t, "", err, ErrInvalidBranch)
 }
 
-// TestOutBailmentIDSort tests that the we can correctly sort a slice
+// TestOutBailmentIDSort tests that we can correctly sort a slice
 // of output requests by the hash of the outbailmentID.
 func TestOutBailmentIDSort(t *testing.T) {
 	or00 := OutputRequest{cachedHash: []byte{0, 0}}

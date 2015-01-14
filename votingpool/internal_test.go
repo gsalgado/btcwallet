@@ -17,9 +17,7 @@
 package votingpool
 
 import (
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/hdkeychain"
-	"github.com/btcsuite/btcwallet/txstore"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
 )
@@ -117,28 +115,3 @@ func DeserializeSeries(serializedSeries []byte) (*SeriesRow, error) {
 }
 
 var TstValidateAndDecryptKeys = validateAndDecryptKeys
-
-// TstIsCreditEligible exposes the private votingpool method eligible for
-// testing.
-func (vp *Pool) TstIsCreditEligible(c txstore.Credit, minConf int, chainHeight int32, dustThreshold btcutil.Amount) bool {
-	return vp.isCreditEligible(c, minConf, chainHeight, dustThreshold)
-}
-
-// TstGetEligibleInputsFromSeries exposes the private votingpool
-// method getEligibleInputsFromSeries for testing.
-func (vp *Pool) TstGetEligibleInputsFromSeries(store *txstore.Store,
-	aRange AddressRange,
-	dustThreshold btcutil.Amount, chainHeight int32,
-	minConf int, limit btcutil.Amount) (Credits, error) {
-	return vp.getEligibleInputsFromSeries(
-		store, aRange, dustThreshold, chainHeight, minConf, limit)
-}
-
-// TstGetEligibleInputs exposes the private votingpool method
-// getEligibleInputs for testing.
-func (vp *Pool) TstGetEligibleInputs(store *txstore.Store,
-	aRanges []AddressRange,
-	dustThreshold btcutil.Amount, chainHeight int32,
-	minConf int, limit btcutil.Amount) (Credits, error) {
-	return vp.getEligibleInputs(store, aRanges, dustThreshold, chainHeight, minConf, limit)
-}
