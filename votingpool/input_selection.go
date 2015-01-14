@@ -54,20 +54,18 @@ func (c *Credit) Address() WithdrawalAddress {
 	return c.addr
 }
 
-// Credits is a type defined as a slice of CreditInterface
-// implementing the sort.Interface.
-type Credits []CreditInterface
+// byAddress defines the methods needed to satisify sort.Interface to sort a
+// slice of CreditInterfaces by their address.
+type byAddress []CreditInterface
 
-// Len returns the length of the underlying slice.
-func (c Credits) Len() int {
-	return len(c)
-}
+func (c byAddress) Len() int      { return len(c) }
+func (c byAddress) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
 
 // Less returns true if the element at positions i is smaller than the
 // element at position j. The 'smaller-than' relation is defined to be
 // the lexicographic ordering defined on the tuple (SeriesID, Index,
 // Branch, TxSha, OutputIndex).
-func (c Credits) Less(i, j int) bool {
+func (c byAddress) Less(i, j int) bool {
 	if c[i].Address().seriesID < c[j].Address().seriesID {
 		return true
 	}
@@ -102,14 +100,6 @@ func (c Credits) Less(i, j int) bool {
 	return false
 }
 
-// Swap swaps the elements at position i and j.
-func (c Credits) Swap(i, j int) {
-	c[i], c[j] = c[j], c[i]
-}
-
-// Check at compile time that Credits implements sort.Interface.
-var _ sort.Interface = (*Credits)(nil)
-
 // AddressRange defines a range in the address space of the series.
 type AddressRange struct {
 	SeriesID                uint32
@@ -137,18 +127,15 @@ func (r AddressRange) NumAddresses() (uint64, error) {
 
 // getEligibleInputs returns all the eligible inputs from the
 // specified ranges.
-//
-// XXX(lars): We might want to return []txstore.Credit instead of
-// Credits. The caller has no use of getting the sortable type.
 func (vp *Pool) getEligibleInputs(
 	store *txstore.Store,
 	ranges []AddressRange,
 	dustThreshold btcutil.Amount,
 	chainHeight int32,
 	minConf int,
-	limit btcutil.Amount) (Credits, error) {
+	limit btcutil.Amount) ([]CreditInterface, error) {
 
-	var inputs Credits
+	var inputs []CreditInterface
 	for _, r := range ranges {
 		credits, err := vp.getEligibleInputsFromSeries(
 			store, r, dustThreshold, chainHeight, minConf, limit)
@@ -162,13 +149,10 @@ func (vp *Pool) getEligibleInputs(
 }
 
 // getEligibleInputsFromSeries returns a slice of eligible inputs for a series.
-//
-// XXX(lars): We might want to return []txstore.Credit instead of
-// Credits. The caller has no use of getting the sortable type.
 func (vp *Pool) getEligibleInputsFromSeries(store *txstore.Store,
 	aRange AddressRange,
 	dustThreshold btcutil.Amount, chainHeight int32,
-	minConf int, limit btcutil.Amount) (Credits, error) {
+	minConf int, limit btcutil.Amount) ([]CreditInterface, error) {
 	unspents, err := store.UnspentOutputs()
 	if err != nil {
 		return nil, newError(ErrInputSelection, "failed to get unspent outputs", err)
@@ -179,7 +163,7 @@ func (vp *Pool) getEligibleInputsFromSeries(store *txstore.Store,
 		return nil, newError(ErrInputSelection, "grouping credits by address failed", err)
 	}
 	totalAmount := btcutil.Amount(0)
-	var inputs Credits
+	var inputs []CreditInterface
 	for index := aRange.StartIndex; index <= aRange.StopIndex; index++ {
 		for branch := aRange.StartBranch; branch <= aRange.StopBranch; branch++ {
 			addr, err := vp.WithdrawalAddress(aRange.SeriesID, branch, index)
@@ -189,7 +173,7 @@ func (vp *Pool) getEligibleInputsFromSeries(store *txstore.Store,
 			encAddr := addr.Addr().EncodeAddress()
 
 			if candidates, ok := addrMap[encAddr]; ok {
-				var eligibles Credits
+				var eligibles []CreditInterface
 				for _, c := range candidates {
 					if vp.isCreditEligible(c, minConf, chainHeight, dustThreshold) {
 						vpc := NewCredit(c, *addr)
@@ -201,7 +185,7 @@ func (vp *Pool) getEligibleInputsFromSeries(store *txstore.Store,
 					}
 				}
 				// Make sure the eligibles are correctly sorted.
-				sort.Sort(eligibles)
+				sort.Sort(byAddress(eligibles))
 				inputs = append(inputs, eligibles...)
 				if totalAmount >= limit {
 					return inputs, nil
