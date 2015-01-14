@@ -35,7 +35,7 @@ func TestLoadVotingPoolAndDepositScript(t *testing.T) {
 	defer tearDown()
 	// setup
 	poolID := "test"
-	pubKeys := []string{pubKey0, pubKey1, pubKey2}
+	pubKeys := vp.TstPubKeys[0:3]
 	err := vp.LoadAndCreateSeries(pool.TstNamespace(), manager, 1, poolID, 0, 2, pubKeys)
 	if err != nil {
 		t.Fatalf("Failed to create voting pool and series: %v", err)
@@ -63,14 +63,14 @@ func TestLoadVotingPoolAndCreateSeries(t *testing.T) {
 	poolID := "test"
 
 	// first time, the voting pool is created
-	pubKeys := []string{pubKey0, pubKey1, pubKey2}
+	pubKeys := vp.TstPubKeys[0:3]
 	err := vp.LoadAndCreateSeries(pool.TstNamespace(), manager, 1, poolID, 0, 2, pubKeys)
 	if err != nil {
 		t.Fatalf("Creating voting pool and Creating series failed: %v", err)
 	}
 
 	// create another series where the voting pool is loaded this time
-	pubKeys = []string{pubKey3, pubKey4, pubKey5}
+	pubKeys = vp.TstPubKeys[3:6]
 	err = vp.LoadAndCreateSeries(pool.TstNamespace(), manager, 1, poolID, 1, 2, pubKeys)
 
 	if err != nil {
@@ -84,13 +84,13 @@ func TestLoadVotingPoolAndReplaceSeries(t *testing.T) {
 
 	// setup
 	poolID := "test"
-	pubKeys := []string{pubKey0, pubKey1, pubKey2}
+	pubKeys := vp.TstPubKeys[0:3]
 	err := vp.LoadAndCreateSeries(pool.TstNamespace(), manager, 1, poolID, 0, 2, pubKeys)
 	if err != nil {
 		t.Fatalf("Failed to create voting pool and series: %v", err)
 	}
 
-	pubKeys = []string{pubKey3, pubKey4, pubKey5}
+	pubKeys = vp.TstPubKeys[3:6]
 	err = vp.LoadAndReplaceSeries(pool.TstNamespace(), manager, 1, poolID, 0, 2, pubKeys)
 	if err != nil {
 		t.Fatalf("Failed to replace series: %v", err)
@@ -103,7 +103,7 @@ func TestLoadVotingPoolAndEmpowerSeries(t *testing.T) {
 
 	// setup
 	poolID := "test"
-	pubKeys := []string{pubKey0, pubKey1, pubKey2}
+	pubKeys := vp.TstPubKeys[0:3]
 	err := vp.LoadAndCreateSeries(pool.TstNamespace(), manager, 1, poolID, 0, 2, pubKeys)
 	if err != nil {
 		t.Fatalf("Creating voting pool and Creating series failed: %v", err)
@@ -112,7 +112,7 @@ func TestLoadVotingPoolAndEmpowerSeries(t *testing.T) {
 	// We need to unlock the manager in order to empower a series
 	vp.TstUnlockManager(t, manager)
 
-	err = vp.LoadAndEmpowerSeries(pool.TstNamespace(), manager, poolID, 0, privKey0)
+	err = vp.LoadAndEmpowerSeries(pool.TstNamespace(), manager, poolID, 0, vp.TstPrivKeys[0])
 	if err != nil {
 		t.Fatalf("Load voting pool and Empower series failed: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestDepositScriptAddress(t *testing.T) {
 			version: 1,
 			series:  0,
 			reqSigs: 2,
-			pubKeys: []string{pubKey0, pubKey1, pubKey2},
+			pubKeys: vp.TstPubKeys[0:3],
 			addresses: map[uint32]string{
 				0: "3Hb4xcebcKg4DiETJfwjh8sF4uDw9rqtVC",
 				1: "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6",
@@ -175,7 +175,7 @@ func TestDepositScriptAddressForNonExistentSeries(t *testing.T) {
 func TestDepositScriptAddressForHardenedPubKey(t *testing.T) {
 	tearDown, _, pool := vp.TstCreatePool(t)
 	defer tearDown()
-	if err := pool.CreateSeries(1, 0, 2, []string{pubKey0, pubKey1, pubKey2}); err != nil {
+	if err := pool.CreateSeries(1, 0, 2, vp.TstPubKeys[0:3]); err != nil {
 		t.Fatalf("Cannot creates series")
 	}
 
@@ -235,27 +235,25 @@ func TestCreateSeries(t *testing.T) {
 			version: 1,
 			series:  0,
 			reqSigs: 2,
-			pubKeys: []string{pubKey0, pubKey1, pubKey2},
+			pubKeys: vp.TstPubKeys[0:3],
 		},
 		{
 			version: 1,
 			series:  1,
 			reqSigs: 3,
-			pubKeys: []string{pubKey0, pubKey1, pubKey2, pubKey3, pubKey4},
+			pubKeys: vp.TstPubKeys[0:5],
 		},
 		{
 			version: 1,
 			series:  2,
 			reqSigs: 4,
-			pubKeys: []string{pubKey0, pubKey1, pubKey2, pubKey3, pubKey4,
-				pubKey5, pubKey6},
+			pubKeys: vp.TstPubKeys[0:7],
 		},
 		{
 			version: 1,
 			series:  3,
 			reqSigs: 5,
-			pubKeys: []string{pubKey0, pubKey1, pubKey2, pubKey3, pubKey4,
-				pubKey5, pubKey6, pubKey7, pubKey8},
+			pubKeys: vp.TstPubKeys[0:9],
 		},
 	}
 
@@ -277,7 +275,7 @@ func TestCreateSeries(t *testing.T) {
 func TestCreateSeriesWhenAlreadyExists(t *testing.T) {
 	tearDown, _, pool := vp.TstCreatePool(t)
 	defer tearDown()
-	pubKeys := []string{pubKey0, pubKey1, pubKey2}
+	pubKeys := vp.TstPubKeys[0:3]
 	if err := pool.CreateSeries(1, 0, 1, pubKeys); err != nil {
 		t.Fatalf("Cannot create series: %v", err)
 	}
@@ -299,18 +297,18 @@ func TestPutSeriesErrors(t *testing.T) {
 		msg     string
 	}{
 		{
-			pubKeys: []string{pubKey0},
+			pubKeys: vp.TstPubKeys[0:1],
 			err:     vp.ErrTooFewPublicKeys,
 			msg:     "Should return error when passed too few pubkeys",
 		},
 		{
 			reqSigs: 5,
-			pubKeys: []string{pubKey0, pubKey1, pubKey2},
+			pubKeys: vp.TstPubKeys[0:3],
 			err:     vp.ErrTooManyReqSignatures,
 			msg:     "Should return error when reqSigs > len(pubKeys)",
 		},
 		{
-			pubKeys: []string{pubKey0, pubKey1, pubKey2, pubKey0},
+			pubKeys: []string{vp.TstPubKeys[0], vp.TstPubKeys[1], vp.TstPubKeys[2], vp.TstPubKeys[0]},
 			err:     vp.ErrKeyDuplicate,
 			msg:     "Should return error when passed duplicate pubkeys",
 		},
@@ -320,7 +318,7 @@ func TestPutSeriesErrors(t *testing.T) {
 			msg:     "Should return error when passed invalid pubkey",
 		},
 		{
-			pubKeys: []string{privKey0, privKey1, privKey2},
+			pubKeys: vp.TstPrivKeys[0:3],
 			err:     vp.ErrKeyIsPrivate,
 			msg:     "Should return error when passed private keys",
 		},
@@ -336,7 +334,7 @@ func TestValidateAndDecryptKeys(t *testing.T) {
 	tearDown, manager, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
-	rawPubKeys, err := encryptKeys([]string{pubKey0, pubKey1}, manager, waddrmgr.CKTPublic)
+	rawPubKeys, err := encryptKeys(vp.TstPubKeys[0:2], manager, waddrmgr.CKTPublic)
 	if err != nil {
 		t.Fatalf("Failed to encrypt public keys: %v", err)
 	}
@@ -345,7 +343,8 @@ func TestValidateAndDecryptKeys(t *testing.T) {
 	// private key.
 	vp.TstUnlockManager(t, manager)
 
-	rawPrivKeys, err := encryptKeys([]string{privKey0, ""}, manager, waddrmgr.CKTPrivate)
+	rawPrivKeys, err := encryptKeys(
+		[]string{vp.TstPrivKeys[0], ""}, manager, waddrmgr.CKTPrivate)
 	if err != nil {
 		t.Fatalf("Failed to encrypt private keys: %v", err)
 	}
@@ -362,12 +361,12 @@ func TestValidateAndDecryptKeys(t *testing.T) {
 		t.Fatalf("Unexpected number of decrypted private keys: got %d, want 2", len(privKeys))
 	}
 
-	if pubKeys[0].String() != pubKey0 || pubKeys[1].String() != pubKey1 {
-		t.Fatalf("Public keys don't match: %v, %v", []string{pubKey0, pubKey1}, pubKeys)
+	if pubKeys[0].String() != vp.TstPubKeys[0] || pubKeys[1].String() != vp.TstPubKeys[1] {
+		t.Fatalf("Public keys don't match: %v, %v", vp.TstPubKeys[0], vp.TstPubKeys[1], pubKeys)
 	}
 
-	if privKeys[0].String() != privKey0 || privKeys[1] != nil {
-		t.Fatalf("Private keys don't match: %v, %v", []string{privKey0, ""}, privKeys)
+	if privKeys[0].String() != vp.TstPrivKeys[0] || privKeys[1] != nil {
+		t.Fatalf("Private keys don't match: %v, %v", []string{vp.TstPrivKeys[0], ""}, privKeys)
 	}
 
 	neuteredKey, err := privKeys[0].Neuter()
@@ -384,7 +383,7 @@ func TestValidateAndDecryptKeysErrors(t *testing.T) {
 	tearDown, manager, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
-	encryptedPubKeys, err := encryptKeys([]string{pubKey0}, manager, waddrmgr.CKTPublic)
+	encryptedPubKeys, err := encryptKeys(vp.TstPubKeys[0:1], manager, waddrmgr.CKTPublic)
 	if err != nil {
 		t.Fatalf("Failed to encrypt public key: %v", err)
 	}
@@ -393,7 +392,7 @@ func TestValidateAndDecryptKeysErrors(t *testing.T) {
 	// private key.
 	vp.TstUnlockManager(t, manager)
 
-	encryptedPrivKeys, err := encryptKeys([]string{privKey1}, manager, waddrmgr.CKTPrivate)
+	encryptedPrivKeys, err := encryptKeys(vp.TstPrivKeys[1:2], manager, waddrmgr.CKTPrivate)
 	if err != nil {
 		t.Fatalf("Failed to encrypt private key: %v", err)
 	}
@@ -405,20 +404,20 @@ func TestValidateAndDecryptKeysErrors(t *testing.T) {
 	}{
 		{
 			// Number of public keys does not match number of private keys.
-			rawPubKeys:  [][]byte{[]byte(pubKey0)},
+			rawPubKeys:  [][]byte{[]byte(vp.TstPubKeys[0])},
 			rawPrivKeys: [][]byte{},
 			err:         vp.ErrKeysPrivatePublicMismatch,
 		},
 		{
 			// Failure to decrypt public key.
-			rawPubKeys:  [][]byte{[]byte(pubKey0)},
-			rawPrivKeys: [][]byte{[]byte(privKey0)},
+			rawPubKeys:  [][]byte{[]byte(vp.TstPubKeys[0])},
+			rawPrivKeys: [][]byte{[]byte(vp.TstPrivKeys[0])},
 			err:         vp.ErrCrypto,
 		},
 		{
 			// Failure to decrypt private key.
 			rawPubKeys:  encryptedPubKeys,
-			rawPrivKeys: [][]byte{[]byte(privKey0)},
+			rawPrivKeys: [][]byte{[]byte(vp.TstPrivKeys[0])},
 			err:         vp.ErrCrypto,
 		},
 		{
@@ -458,18 +457,19 @@ func TestCannotReplaceEmpoweredSeries(t *testing.T) {
 
 	var seriesID uint32 = 1
 
-	if err := pool.CreateSeries(1, seriesID, 3, []string{pubKey0, pubKey1, pubKey2, pubKey3}); err != nil {
+	if err := pool.CreateSeries(1, seriesID, 3, vp.TstPubKeys[0:4]); err != nil {
 		t.Fatalf("Failed to create series", err)
 	}
 
 	// We need to unlock the manager in order to empower a series.
 	vp.TstUnlockManager(t, manager)
 
-	if err := pool.EmpowerSeries(seriesID, privKey1); err != nil {
+	if err := pool.EmpowerSeries(seriesID, vp.TstPrivKeys[1]); err != nil {
 		t.Fatalf("Failed to empower series", err)
 	}
 
-	err := pool.ReplaceSeries(1, seriesID, 2, []string{pubKey0, pubKey2, pubKey3})
+	err := pool.ReplaceSeries(
+		1, seriesID, 2, []string{vp.TstPubKeys[0], vp.TstPubKeys[2], vp.TstPubKeys[3]})
 
 	vp.TstCheckError(t, "", err, vp.ErrSeriesAlreadyEmpowered)
 }
@@ -478,7 +478,7 @@ func TestReplaceNonExistingSeries(t *testing.T) {
 	tearDown, _, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
-	pubKeys := []string{pubKey0, pubKey1, pubKey2}
+	pubKeys := vp.TstPubKeys[0:3]
 
 	err := pool.ReplaceSeries(1, 1, 3, pubKeys)
 
@@ -499,14 +499,13 @@ var replaceSeriesTestData = []replaceSeriesTestEntry{
 			version: 1,
 			reqSigs: 2,
 			pubKeys: vp.CanonicalKeyOrder(
-				[]string{pubKey0, pubKey1, pubKey2, pubKey4}),
+				[]string{vp.TstPubKeys[0], vp.TstPubKeys[1], vp.TstPubKeys[2], vp.TstPubKeys[4]}),
 		},
 		replaceWith: seriesRaw{
 			id:      0,
 			version: 1,
 			reqSigs: 1,
-			pubKeys: vp.CanonicalKeyOrder(
-				[]string{pubKey3, pubKey4, pubKey5}),
+			pubKeys: vp.CanonicalKeyOrder(vp.TstPubKeys[3:6]),
 		},
 	},
 	{
@@ -515,15 +514,13 @@ var replaceSeriesTestData = []replaceSeriesTestEntry{
 			id:      2,
 			version: 1,
 			reqSigs: 2,
-			pubKeys: vp.CanonicalKeyOrder(
-				[]string{pubKey0, pubKey1, pubKey2}),
+			pubKeys: vp.CanonicalKeyOrder(vp.TstPubKeys[0:3]),
 		},
 		replaceWith: seriesRaw{
 			id:      2,
 			version: 1,
 			reqSigs: 2,
-			pubKeys: vp.CanonicalKeyOrder(
-				[]string{pubKey3, pubKey4, pubKey5, pubKey6}),
+			pubKeys: vp.CanonicalKeyOrder(vp.TstPubKeys[3:7]),
 		},
 	},
 	{
@@ -532,13 +529,13 @@ var replaceSeriesTestData = []replaceSeriesTestEntry{
 			id:      4,
 			version: 1,
 			reqSigs: 8,
-			pubKeys: vp.CanonicalKeyOrder([]string{pubKey0, pubKey1, pubKey2, pubKey3, pubKey4, pubKey5, pubKey6, pubKey7, pubKey8}),
+			pubKeys: vp.CanonicalKeyOrder(vp.TstPubKeys[0:9]),
 		},
 		replaceWith: seriesRaw{
 			id:      4,
 			version: 1,
 			reqSigs: 7,
-			pubKeys: vp.CanonicalKeyOrder([]string{pubKey0, pubKey1, pubKey2, pubKey3, pubKey4, pubKey5, pubKey6, pubKey7}),
+			pubKeys: vp.CanonicalKeyOrder(vp.TstPubKeys[0:8]),
 		},
 	},
 }
@@ -599,13 +596,13 @@ func TestEmpowerSeries(t *testing.T) {
 	defer tearDown()
 
 	seriesID := uint32(0)
-	if err := pool.CreateSeries(1, seriesID, 2, []string{pubKey0, pubKey1, pubKey2}); err != nil {
+	if err := pool.CreateSeries(1, seriesID, 2, vp.TstPubKeys[0:3]); err != nil {
 		t.Fatalf("Failed to create series: %v", err)
 	}
 	// We need to unlock the manager in order to empower a series.
 	vp.TstUnlockManager(t, manager)
 
-	err := pool.EmpowerSeries(seriesID, privKey0)
+	err := pool.EmpowerSeries(seriesID, vp.TstPrivKeys[0])
 
 	if err != nil {
 		t.Errorf("Failed to empower series: %v", err)
@@ -617,7 +614,7 @@ func TestEmpowerSeriesErrors(t *testing.T) {
 	defer tearDown()
 
 	seriesID := uint32(0)
-	if err := pool.CreateSeries(1, seriesID, 2, []string{pubKey0, pubKey1, pubKey2}); err != nil {
+	if err := pool.CreateSeries(1, seriesID, 2, vp.TstPubKeys[0:3]); err != nil {
 		t.Fatalf("Failed to create series: %v", err)
 	}
 
@@ -628,7 +625,7 @@ func TestEmpowerSeriesErrors(t *testing.T) {
 	}{
 		{
 			seriesID: 1,
-			key:      privKey0,
+			key:      vp.TstPrivKeys[0],
 			// Invalid series.
 			err: vp.ErrSeriesNotExists,
 		},
@@ -640,13 +637,13 @@ func TestEmpowerSeriesErrors(t *testing.T) {
 		},
 		{
 			seriesID: seriesID,
-			key:      pubKey5,
+			key:      vp.TstPubKeys[5],
 			// Wrong type of key.
 			err: vp.ErrKeyIsPublic,
 		},
 		{
 			seriesID: seriesID,
-			key:      privKey5,
+			key:      vp.TstPrivKeys[5],
 			// Key not corresponding to public key.
 			err: vp.ErrKeysPrivatePublicMismatch,
 		},
@@ -665,7 +662,7 @@ func TestEmpowerSeriesErrors(t *testing.T) {
 func TestGetSeries(t *testing.T) {
 	tearDown, _, pool := vp.TstCreatePool(t)
 	defer tearDown()
-	expectedPubKeys := vp.CanonicalKeyOrder([]string{pubKey0, pubKey1, pubKey2})
+	expectedPubKeys := vp.CanonicalKeyOrder(vp.TstPubKeys[0:3])
 	if err := pool.CreateSeries(1, 0, 2, expectedPubKeys); err != nil {
 		t.Fatalf("Failed to create series: %v", err)
 	}
@@ -702,21 +699,21 @@ var testLoadAllSeriesTests = []testLoadAllSeriesTest{
 				id:      0,
 				version: 1,
 				reqSigs: 2,
-				pubKeys: []string{pubKey0, pubKey1, pubKey2},
+				pubKeys: vp.TstPubKeys[0:3],
 			},
 			{
 				id:       1,
 				version:  1,
 				reqSigs:  2,
-				pubKeys:  []string{pubKey3, pubKey4, pubKey5},
-				privKeys: []string{privKey4},
+				pubKeys:  vp.TstPubKeys[3:6],
+				privKeys: vp.TstPrivKeys[4:5],
 			},
 			{
 				id:       2,
 				version:  1,
 				reqSigs:  3,
-				pubKeys:  []string{pubKey0, pubKey1, pubKey2, pubKey3, pubKey4},
-				privKeys: []string{privKey0, privKey2},
+				pubKeys:  vp.TstPubKeys[0:5],
+				privKeys: []string{vp.TstPrivKeys[0], vp.TstPrivKeys[2]},
 			},
 		},
 	},
@@ -727,7 +724,7 @@ var testLoadAllSeriesTests = []testLoadAllSeriesTest{
 				id:      0,
 				version: 1,
 				reqSigs: 2,
-				pubKeys: []string{pubKey0, pubKey1, pubKey2},
+				pubKeys: vp.TstPubKeys[0:3],
 			},
 		},
 	},
@@ -968,7 +965,7 @@ func TestEmpowerSeriesNeuterFailed(t *testing.T) {
 	defer tearDown()
 
 	seriesID := uint32(0)
-	err := pool.CreateSeries(1, seriesID, 2, []string{pubKey0, pubKey1, pubKey2})
+	err := pool.CreateSeries(1, seriesID, 2, vp.TstPubKeys[0:3])
 	if err != nil {
 		t.Fatalf("Failed to create series: %v", err)
 	}
@@ -1019,7 +1016,7 @@ func TestSerializationErrors(t *testing.T) {
 	}{
 		{
 			version: 2,
-			pubKeys: []string{pubKey0, pubKey1, pubKey2},
+			pubKeys: vp.TstPubKeys[0:3],
 			err:     vp.ErrSeriesVersion,
 		},
 		{
@@ -1028,13 +1025,13 @@ func TestSerializationErrors(t *testing.T) {
 			err: vp.ErrSeriesStorage,
 		},
 		{
-			pubKeys:  []string{pubKey0, pubKey1, pubKey2},
-			privKeys: []string{privKey0},
+			pubKeys:  vp.TstPubKeys[0:3],
+			privKeys: vp.TstPrivKeys[0:1],
 			// The number of public and private keys should be the same.
 			err: vp.ErrSeriesStorage,
 		},
 		{
-			pubKeys:  []string{pubKey0},
+			pubKeys:  vp.TstPubKeys[0:1],
 			privKeys: []string{"NONSENSE"},
 			// Not a valid length private key.
 			err: vp.ErrSeriesStorage,
@@ -1077,28 +1074,28 @@ func TestSerialization(t *testing.T) {
 		{
 			version: 1,
 			active:  true,
-			pubKeys: []string{pubKey0},
+			pubKeys: vp.TstPubKeys[0:1],
 			reqSigs: 1,
 		},
 		{
 			version:  0,
 			active:   false,
-			pubKeys:  []string{pubKey0},
-			privKeys: []string{privKey0},
+			pubKeys:  vp.TstPubKeys[0:1],
+			privKeys: vp.TstPrivKeys[0:1],
 			reqSigs:  1,
 		},
 		{
-			pubKeys:  []string{pubKey0, pubKey1, pubKey2},
-			privKeys: []string{privKey0, "", ""},
+			pubKeys:  vp.TstPubKeys[0:3],
+			privKeys: []string{vp.TstPrivKeys[0], "", ""},
 			reqSigs:  2,
 		},
 		{
-			pubKeys: []string{pubKey0, pubKey1, pubKey2, pubKey3, pubKey4},
+			pubKeys: vp.TstPubKeys[0:5],
 			reqSigs: 3,
 		},
 		{
-			pubKeys:  []string{pubKey0, pubKey1, pubKey2, pubKey3, pubKey4, pubKey5, pubKey6},
-			privKeys: []string{"", privKey1, "", privKey3, "", "", ""},
+			pubKeys:  vp.TstPubKeys[0:7],
+			privKeys: []string{"", vp.TstPrivKeys[1], "", vp.TstPrivKeys[3], "", "", ""},
 			reqSigs:  4,
 		},
 	}
@@ -1215,26 +1212,3 @@ func TestDeserializationErrors(t *testing.T) {
 		vp.TstCheckError(t, fmt.Sprintf("Test #%d", testNum), err, test.err)
 	}
 }
-
-// Sample raw public/private extended keys used across our tests.
-const (
-	privKey0 = "xprv9s21ZrQH143K2j9PK4CXkCu8sgxkpUxCF7p1KVwiV5tdnkeYzJXReUkxz5iB2FUzTXC1L15abCDG4RMxSYT5zhm67uvsnLYxuDhZfoFcB6a"
-	privKey1 = "xprv9s21ZrQH143K4PtW77ATQAKAGk7KAFFCzxFuAcWduoMEeQhCgWpuYWQvMGZknqdispUbgLZV1YPqFCbpzMJij8tSZ5xPSaZqPbchojeNuq7"
-	privKey2 = "xprv9s21ZrQH143K27XboWxXZGU5j7VZ9SqVBnmMQPKTbddiWAhuNzeLynKHaZTAti6N454tVUUcvy6u15DfuW68NCBUxry6ZsHHzqoA8UtzdMn"
-	privKey3 = "xprv9s21ZrQH143K2vb4DGQymRejLcZSksBHTYLxB7Stg1c7Lk9JxgEUGZTozwUKxoEWJPoGSdGnJY1TW7LNFQCWrpZjDdEXJeqJuDde6BmdD4P"
-	privKey4 = "xprv9s21ZrQH143K4JNmRvWeLc1PggzusKcDYV1y8fAMNDdb9Rm5X1AvGHizxEdhTVR3sc62XvifC6dLAXMuQesX1y6999xnDwQ3aVno8KviU9d"
-	privKey5 = "xprv9s21ZrQH143K3dxrqESqeHZ7pSwM6Uq77ssQADSBs7qdFs6dyRWmRcPyLUTQRpgB3EduNhJuWkCGG2LHjuUisw8KKfXJpPqYJ1MSPrZpe1z"
-	privKey6 = "xprv9s21ZrQH143K2nE8ENAMNksTTVxPrMxFNWUuwThMy2bcH9LHTtQDXSNq2pTNcbuq36n5A3J9pbXVqnq5LDXvqniFRLN299kW7Svnxsx9tQv"
-	privKey7 = "xprv9s21ZrQH143K3p93xF1oFeB6ey5ruUesWjuPxA9Z2R5wf6BLYfGXz7fg7NavWkQ2cx3Vm8w2HV9uKpSprNNHnenGeW9XhYDPSjwS9hyCs33"
-	privKey8 = "xprv9s21ZrQH143K3WxnnvPZ8SDGXndASvLTFwMLBVzNCVgs9rzP6rXgW92DLvozdyBm8T9bSQvrFm1jMpTJrRE6w1KY5tshFeDk9Nn3K6V5FYX"
-
-	pubKey0 = "xpub661MyMwAqRbcFDDrR5jY7LqsRioFDwg3cLjc7tML3RRcfYyhXqqgCH5SqMSQdpQ1Xh8EtVwcfm8psD8zXKPcRaCVSY4GCqbb3aMEs27GitE"
-	pubKey1 = "xpub661MyMwAqRbcGsxyD8hTmJFtpmwoZhy4NBBVxzvFU8tDXD2ME49A6JjQCYgbpSUpHGP1q4S2S1Pxv2EqTjwfERS5pc9Q2yeLkPFzSgRpjs9"
-	pubKey2 = "xpub661MyMwAqRbcEbc4uYVXvQQpH9L3YuZLZ1gxCmj59yAhNy33vXxbXadmRpx5YZEupNSqWRrR7PqU6duS2FiVCGEiugBEa5zuEAjsyLJjKCh"
-	pubKey3 = "xpub661MyMwAqRbcFQfXKHwz8ZbTtePwAKu8pmGYyVrWEM96DYUTWDYipMnHrFcemZHn13jcRMfsNU3UWQUudiaE7mhkWCHGFRMavF167DQM4Va"
-	pubKey4 = "xpub661MyMwAqRbcGnTEXx3ehjx8EiqQGnL4uhwZw3ZxvZAa2E6E4YVAp63UoVtvm2vMDDF8BdPpcarcf7PWcEKvzHhxzAYw1zG23C2egeh82AR"
-	pubKey5 = "xpub661MyMwAqRbcG83KwFyr1RVrNUmqVwYxV6nzxbqoRTNc8fRnWxq1yQiTBifTHhevcEM9ucZ1TqFS7Kv17Gd81cesv6RDrrvYS9SLPjPXhV5"
-	pubKey6 = "xpub661MyMwAqRbcFGJbLPhMjtpC1XntFpg6jjQWjr6yXN8b9wfS1RiU5EhJt5L7qoFuidYawc3XJoLjT2PcjVpXryS3hn1WmSPCyvQDNuKsfgM"
-	pubKey7 = "xpub661MyMwAqRbcGJDX4GYocn7qCzvMJwNisxpzkYZAakcvXtWV6CanXuz9xdfe5kTptFMJ4hDt2iTiT11zyN14u8R5zLvoZ1gnEVqNLxp1r3v"
-	pubKey8 = "xpub661MyMwAqRbcG13FtwvZVaA15pTerP4JdAGvytPykqDr2fKXePqw3wLhCALPAixsE176jFkc2ac9K3tnF4KwaTRKUqFF5apWD6XL9LHCu7E"
-)
