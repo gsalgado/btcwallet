@@ -265,7 +265,6 @@ func TestNonEligibleInputsAreNotEligible(t *testing.T) {
 
 }
 
-// TODO: Use real Credits here so that we can get rid of TstFakeCredit.
 func TestCreditInterfaceSortingByAddress(t *testing.T) {
 	teardown, _, pool := TstCreatePool(t)
 	defer teardown()
@@ -310,58 +309,36 @@ func TestCreditInterfaceSortingByAddress(t *testing.T) {
 	}
 }
 
-// TstFakeCredit is a structure implementing the CreditInterface used
-// for testing purposes.
+// TstFakeCredit is a structure implementing the CreditInterface used to test
+// the byAddress sorting. It exists because to test the sorting properly we need
+// to be able to set the Credit's TxSha and OutputIndex.
 type TstFakeCredit struct {
 	addr        WithdrawalAddress
-	txid        *btcwire.ShaHash
+	txSha       *btcwire.ShaHash
 	outputIndex uint32
 	amount      btcutil.Amount
 }
 
-func (c *TstFakeCredit) String() string {
-	return ""
-}
-
-func (c *TstFakeCredit) TxSha() *btcwire.ShaHash {
-	return c.txid
-}
-
-func (c *TstFakeCredit) OutputIndex() uint32 {
-	return c.outputIndex
-}
-
-func (c *TstFakeCredit) Address() WithdrawalAddress {
-	return c.addr
-}
-
-func (c *TstFakeCredit) Amount() btcutil.Amount {
-	return c.amount
-}
-
-func (c *TstFakeCredit) TxOut() *btcwire.TxOut {
-	return nil
-}
-
+func (c *TstFakeCredit) String() string             { return "" }
+func (c *TstFakeCredit) TxSha() *btcwire.ShaHash    { return c.txSha }
+func (c *TstFakeCredit) OutputIndex() uint32        { return c.outputIndex }
+func (c *TstFakeCredit) Address() WithdrawalAddress { return c.addr }
+func (c *TstFakeCredit) Amount() btcutil.Amount     { return c.amount }
+func (c *TstFakeCredit) TxOut() *btcwire.TxOut      { return nil }
 func (c *TstFakeCredit) OutPoint() *btcwire.OutPoint {
-	return &btcwire.OutPoint{Hash: *c.txid, Index: c.outputIndex}
+	return &btcwire.OutPoint{Hash: *c.txSha, Index: c.outputIndex}
 }
 
-func (c *TstFakeCredit) SetAmount(amount btcutil.Amount) *TstFakeCredit {
-	c.amount = amount
-	return c
-}
-
-func TstNewFakeCredit(t *testing.T, pool *Pool, series uint32, index Index, branch Branch, txid []byte, outputIdx int) *TstFakeCredit {
+func TstNewFakeCredit(t *testing.T, pool *Pool, series uint32, index Index, branch Branch, txSha []byte, outputIdx int) *TstFakeCredit {
 	var hash btcwire.ShaHash
-	copy(hash[:], txid)
+	copy(hash[:], txSha)
 	addr, err := pool.WithdrawalAddress(series, branch, index)
 	if err != nil {
 		t.Fatalf("WithdrawalAddress failed: %v", err)
 	}
 	return &TstFakeCredit{
 		addr:        *addr,
-		txid:        &hash,
+		txSha:       &hash,
 		outputIndex: uint32(outputIdx),
 	}
 }
