@@ -54,6 +54,9 @@ func (c *Credit) Address() WithdrawalAddress {
 	return c.addr
 }
 
+// Compile time check that Credit implements CreditInterface.
+var _ CreditInterface = (*Credit)(nil)
+
 // byAddress defines the methods needed to satisify sort.Interface to sort a
 // slice of CreditInterfaces by their address.
 type byAddress []CreditInterface
