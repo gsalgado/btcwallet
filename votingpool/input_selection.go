@@ -100,36 +100,41 @@ func (c byAddress) Less(i, j int) bool {
 	return false
 }
 
-// AddressRange defines a range in the address space of the series.
-type AddressRange struct {
+// addressRange defines a range in the address space of the series.
+type addressRange struct {
 	SeriesID                uint32
 	StartBranch, StopBranch Branch
 	StartIndex, StopIndex   Index
 }
 
-// NumAddresses returns the number of addresses this range represents.
-func (r AddressRange) NumAddresses() (uint64, error) {
-	// XXX(lars): the range validity checking should be moved to a
-	// NewAddressRange constructor function instead and then the
-	// AddressRange should be made private.
-	if r.StartBranch > r.StopBranch {
-		str := "range not defined when StartBranch > StopBranch"
-		return 0, newError(ErrInvalidAddressRange, str, nil)
+func newAddressRange(
+	seriesID uint32, startBranch, stopBranch Branch, startIndex, stopIndex Index) (
+	*addressRange, error) {
+	if startBranch > stopBranch {
+		str := fmt.Sprintf("range not defined when startBranch (%d) > stopBranch (%d)",
+			startBranch, stopBranch)
+		return nil, newError(ErrInvalidAddressRange, str, nil)
 	}
-	if r.StartIndex > r.StopIndex {
-		str := "range not defined when StartIndex > StopIndex"
-		return 0, newError(ErrInvalidAddressRange, str, nil)
+	if startIndex > stopIndex {
+		str := fmt.Sprintf("range not defined when startIndex (%d) > stopIndex (%d)",
+			startIndex, stopIndex)
+		return nil, newError(ErrInvalidAddressRange, str, nil)
 	}
+	return &addressRange{
+		SeriesID: seriesID, StartBranch: startBranch, StopBranch: stopBranch,
+		StartIndex: startIndex, StopIndex: stopIndex}, nil
+}
 
-	return uint64((r.StopBranch - r.StartBranch + 1)) *
-		uint64((r.StopIndex - r.StartIndex + 1)), nil
+// numAddresses returns the number of addresses this range represents.
+func (r addressRange) numAddresses() uint64 {
+	return uint64((r.StopBranch - r.StartBranch + 1)) * uint64((r.StopIndex - r.StartIndex + 1))
 }
 
 // getEligibleInputs returns all the eligible inputs from the
 // specified ranges.
 func (vp *Pool) getEligibleInputs(
 	store *txstore.Store,
-	ranges []AddressRange,
+	ranges []*addressRange,
 	dustThreshold btcutil.Amount,
 	chainHeight int32,
 	minConf int,
@@ -150,7 +155,7 @@ func (vp *Pool) getEligibleInputs(
 
 // getEligibleInputsFromSeries returns a slice of eligible inputs for a series.
 func (vp *Pool) getEligibleInputsFromSeries(store *txstore.Store,
-	aRange AddressRange,
+	aRange *addressRange,
 	dustThreshold btcutil.Amount, chainHeight int32,
 	minConf int, limit btcutil.Amount) ([]CreditInterface, error) {
 	unspents, err := store.UnspentOutputs()

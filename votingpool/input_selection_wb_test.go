@@ -39,22 +39,8 @@ func TestGetEligibleInputs(t *testing.T) {
 	defer tearDown()
 
 	// create some eligible inputs in a specified range.
-	aRanges := []AddressRange{
-		{
-			SeriesID:    0,
-			StartBranch: 0,
-			StopBranch:  3,
-			StartIndex:  0,
-			StopIndex:   4,
-		},
-		{
-			SeriesID:    1,
-			StartBranch: 0,
-			StopBranch:  3,
-			StartIndex:  0,
-			StopIndex:   6,
-		},
-	}
+	aRanges := []*addressRange{
+		TstNewAddressRange(t, 0, 0, 3, 0, 4), TstNewAddressRange(t, 1, 0, 3, 0, 6)}
 	// define two series.
 	series := []TstSeriesDef{
 		{ReqSigs: 2, PubKeys: TstPubKeys[1:4], SeriesID: aRanges[0].SeriesID},
@@ -108,15 +94,7 @@ func TestGetEligibleInputsAmountLimit(t *testing.T) {
 	defer tearDown()
 
 	seriesID := uint32(0)
-	aRanges := []AddressRange{
-		{
-			SeriesID:    seriesID,
-			StartBranch: 0,
-			StopBranch:  3,
-			StartIndex:  0,
-			StopIndex:   4,
-		},
-	}
+	aRanges := []*addressRange{TstNewAddressRange(t, seriesID, 0, 3, 0, 4)}
 	TstCreateSeries(
 		t, pool, []TstSeriesDef{{ReqSigs: 2, PubKeys: TstPubKeys[1:4], SeriesID: seriesID}})
 	scripts := createScripts(t, pool.Manager(), pool, aRanges)
@@ -153,13 +131,7 @@ func TestGetEligibleInputsFromSeries(t *testing.T) {
 	teardown, mgr, pool := TstCreatePool(t)
 	defer teardown()
 	// create some eligible inputs in a specified range.
-	aRange := AddressRange{
-		SeriesID:    0,
-		StartBranch: 0,
-		StopBranch:  2,
-		StartIndex:  0,
-		StopIndex:   4,
-	}
+	aRange := TstNewAddressRange(t, 0, 0, 2, 0, 4)
 	blockHeight := 11112
 	currentChainHeight := blockHeight + minConf + 10
 	store := txstore.New("/tmp/tx.bin")
@@ -170,7 +142,7 @@ func TestGetEligibleInputsFromSeries(t *testing.T) {
 	TstCreateSeries(t, pool, series)
 
 	// create all the scripts.
-	scripts := createScripts(t, mgr, pool, []AddressRange{aRange})
+	scripts := createScripts(t, mgr, pool, []*addressRange{aRange})
 
 	// Let's create two eligible inputs for each of the scripts.
 	expNumberOfEligibleInputs := 2 * len(scripts)
@@ -263,6 +235,35 @@ func TestNonEligibleInputsAreNotEligible(t *testing.T) {
 		t.Errorf("Input is eligible and it should not be.")
 	}
 
+}
+
+func TestAddressRange(t *testing.T) {
+
+	// Test some valid ranges.
+	one := TstNewAddressRange(t, 0, 0, 0, 0, 0)
+	got := one.numAddresses()
+	if got != uint64(1) {
+		t.Fatalf("Wrong range. Got %d, want: %d", got, 1)
+	}
+
+	two := TstNewAddressRange(t, 0, 0, 0, 0, 1)
+	got = two.numAddresses()
+	if got != uint64(2) {
+		t.Fatalf("Wrong range. Got %d, want: %d", got, 2)
+	}
+
+	four := TstNewAddressRange(t, 0, 0, 1, 0, 1)
+	got = four.numAddresses()
+	if got != uint64(4) {
+		t.Fatalf("Wrong range. Got %d, want: %d", got, 4)
+	}
+
+	// Test invalid ranges.
+	_, err := newAddressRange(0, 1, 0, 0, 1)
+	TstCheckError(t, "", err, ErrInvalidAddressRange)
+
+	_, err = newAddressRange(0, 0, 1, 1, 0)
+	TstCheckError(t, "", err, ErrInvalidAddressRange)
 }
 
 func TestCreditInterfaceSortingByAddress(t *testing.T) {
@@ -373,15 +374,12 @@ func checkUniqueness(t *testing.T, credits byAddress) {
 	}
 }
 
-func createScripts(t *testing.T, mgr *waddrmgr.Manager, pool *Pool, ranges []AddressRange) [][]byte {
+func createScripts(t *testing.T, mgr *waddrmgr.Manager, pool *Pool, ranges []*addressRange) [][]byte {
 	var scripts [][]byte
 	for _, r := range ranges {
 		// create expNoAddrs number of scripts.
-		expNoAddrs, err := r.NumAddresses()
-		if err != nil {
-			t.Fatal("Calculating the range failed")
-		}
-		newScripts := TstCreatePkScripts(t, pool, r)
+		expNoAddrs := r.numAddresses()
+		newScripts := TstCreatePkScripts(t, pool, *r)
 		if uint64(len(newScripts)) != expNoAddrs {
 			t.Fatalf("Wrong number of scripts generated. Got: %d, want: %d",
 				len(scripts), expNoAddrs)

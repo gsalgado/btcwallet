@@ -150,7 +150,7 @@ func TstCreateSeries(t *testing.T, pool *Pool, definitions []TstSeriesDef) {
 	}
 }
 
-func TstCreatePkScripts(t *testing.T, pool *Pool, aRange AddressRange) [][]byte {
+func TstCreatePkScripts(t *testing.T, pool *Pool, aRange addressRange) [][]byte {
 	var pkScripts [][]byte
 	for index := aRange.StartIndex; index <= aRange.StopIndex; index++ {
 		for branch := aRange.StartBranch; branch <= aRange.StopBranch; branch++ {
@@ -352,7 +352,14 @@ func TstNewWithdrawalOutput(request OutputRequest, status string, outpoints []Ou
 }
 
 func TstConstantFee(fee btcutil.Amount) func() btcutil.Amount {
-	return func() btcutil.Amount {
-		return fee
+	return func() btcutil.Amount { return fee }
+}
+
+func TstNewAddressRange(t *testing.T, seriesID uint32, startBranch, stopBranch Branch,
+	startIndex, stopIndex Index) *addressRange {
+	aRange, err := newAddressRange(seriesID, startBranch, stopBranch, startIndex, stopIndex)
+	if err != nil {
+		t.Fatalf("Error creating addressRange: %v", err)
 	}
+	return aRange
 }
