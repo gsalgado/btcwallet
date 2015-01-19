@@ -30,7 +30,7 @@ import (
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 )
 
-func TestLoadVotingPoolAndDepositScript(t *testing.T) {
+func TestLoadPoolAndDepositScript(t *testing.T) {
 	tearDown, manager, pool := vp.TstCreatePool(t)
 	defer tearDown()
 	// setup
@@ -56,7 +56,7 @@ func TestLoadVotingPoolAndDepositScript(t *testing.T) {
 	}
 }
 
-func TestLoadVotingPoolAndCreateSeries(t *testing.T) {
+func TestLoadPoolAndCreateSeries(t *testing.T) {
 	tearDown, manager, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
@@ -78,7 +78,7 @@ func TestLoadVotingPoolAndCreateSeries(t *testing.T) {
 	}
 }
 
-func TestLoadVotingPoolAndReplaceSeries(t *testing.T) {
+func TestLoadPoolAndReplaceSeries(t *testing.T) {
 	tearDown, manager, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
@@ -97,7 +97,7 @@ func TestLoadVotingPoolAndReplaceSeries(t *testing.T) {
 	}
 }
 
-func TestLoadVotingPoolAndEmpowerSeries(t *testing.T) {
+func TestLoadPoolAndEmpowerSeries(t *testing.T) {
 	tearDown, manager, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
@@ -186,33 +186,33 @@ func TestDepositScriptAddressForHardenedPubKey(t *testing.T) {
 	vp.TstCheckError(t, "", err, vp.ErrKeyChain)
 }
 
-func TestLoadVotingPool(t *testing.T) {
+func TestLoadPool(t *testing.T) {
 	tearDown, mgr, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
 	pool2, err := vp.Load(pool.TstNamespace(), mgr, pool.ID)
 	if err != nil {
-		t.Errorf("Error loading VotingPool: %v", err)
+		t.Errorf("Error loading Pool: %v", err)
 	}
 	if !bytes.Equal(pool2.ID, pool.ID) {
 		t.Errorf("Voting pool obtained from DB does not match the created one")
 	}
 }
 
-func TestCreateVotingPool(t *testing.T) {
+func TestCreatePool(t *testing.T) {
 	tearDown, mgr, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
 	pool2, err := vp.Create(pool.TstNamespace(), mgr, []byte{0x02})
 	if err != nil {
-		t.Errorf("Error creating VotingPool: %v", err)
+		t.Errorf("Error creating Pool: %v", err)
 	}
 	if !bytes.Equal(pool2.ID, []byte{0x02}) {
-		t.Errorf("VotingPool ID mismatch: got %v, want %v", pool2.ID, []byte{0x02})
+		t.Errorf("Pool ID mismatch: got %v, want %v", pool2.ID, []byte{0x02})
 	}
 }
 
-func TestCreateVotingPoolWhenAlreadyExists(t *testing.T) {
+func TestCreatePoolWhenAlreadyExists(t *testing.T) {
 	tearDown, mgr, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
@@ -1237,7 +1237,7 @@ func TestPoolChangeAddress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get ChangeAddress: %v", err)
 	}
-	checkVotingPoolAddress(t, addr, 0, 0, 0)
+	checkPoolAddress(t, addr, 0, 0, 0)
 
 	// When the series is not active, we should get an error.
 	vp.TstCreateSeries(
@@ -1256,7 +1256,7 @@ func TestPoolWithdrawalAddress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get WithdrawalAddress: %v", err)
 	}
-	checkVotingPoolAddress(t, addr, 0, 0, 0)
+	checkPoolAddress(t, addr, 0, 0, 0)
 
 	// When the requested branch is > len(series.publicKeys), we should get an
 	// error.
@@ -1333,7 +1333,7 @@ func checkWithdrawalAddressMatches(t *testing.T, addr *vp.WithdrawalAddress, ser
 	}
 }
 
-func checkVotingPoolAddress(
+func checkPoolAddress(
 	t *testing.T, addr vp.PoolAddress, seriesID uint32, branch vp.Branch, index vp.Index) {
 
 	if addr.SeriesID() != 0 {

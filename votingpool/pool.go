@@ -554,7 +554,7 @@ func (vp *Pool) DepositScript(seriesID uint32, branch Branch, index Index) ([]by
 
 func (vp *Pool) ChangeAddress(seriesID uint32, index Index) (*ChangeAddress, error) {
 	// Branch is always 0 for change addresses.
-	vpAddr, err := vp.newVotingPoolAddress(seriesID, Branch(0), index)
+	vpAddr, err := vp.newPoolAddress(seriesID, Branch(0), index)
 	if err != nil {
 		return nil, err
 	}
@@ -562,19 +562,19 @@ func (vp *Pool) ChangeAddress(seriesID uint32, index Index) (*ChangeAddress, err
 		str := fmt.Sprintf("ChangeAddress must be on active series; series #%d is not", seriesID)
 		return nil, newError(ErrSeriesNotActive, str, nil)
 	}
-	return &ChangeAddress{votingPoolAddress: vpAddr}, nil
+	return &ChangeAddress{poolAddress: vpAddr}, nil
 }
 
 func (vp *Pool) WithdrawalAddress(seriesID uint32, branch Branch, index Index) (*WithdrawalAddress, error) {
 	// TODO: Ensure the given series is hot.
-	vpAddr, err := vp.newVotingPoolAddress(seriesID, branch, index)
+	vpAddr, err := vp.newPoolAddress(seriesID, branch, index)
 	if err != nil {
 		return nil, err
 	}
-	return &WithdrawalAddress{votingPoolAddress: vpAddr}, nil
+	return &WithdrawalAddress{poolAddress: vpAddr}, nil
 }
 
-type votingPoolAddress struct {
+type poolAddress struct {
 	pool     *Pool
 	addr     btcutil.Address
 	script   []byte
@@ -583,7 +583,7 @@ type votingPoolAddress struct {
 	index    Index
 }
 
-func (vp *Pool) newVotingPoolAddress(seriesID uint32, branch Branch, index Index) (*votingPoolAddress, error) {
+func (vp *Pool) newPoolAddress(seriesID uint32, branch Branch, index Index) (*poolAddress, error) {
 	script, err := vp.DepositScript(seriesID, branch, index)
 	if err != nil {
 		return nil, err
@@ -592,42 +592,42 @@ func (vp *Pool) newVotingPoolAddress(seriesID uint32, branch Branch, index Index
 	if err != nil {
 		return nil, err
 	}
-	return &votingPoolAddress{
+	return &poolAddress{
 			pool: vp, seriesID: seriesID, branch: branch, index: index, addr: addr, script: script},
 		nil
 }
 
 // String returns a string encoding of the underlying bitcoin payment address.
-func (a *votingPoolAddress) String() string {
+func (a *poolAddress) String() string {
 	return a.Addr().EncodeAddress()
 }
 
-func (a *votingPoolAddress) Addr() btcutil.Address {
+func (a *poolAddress) Addr() btcutil.Address {
 	return a.addr
 }
 
-func (a *votingPoolAddress) AddrIdentifier() string {
+func (a *poolAddress) AddrIdentifier() string {
 	return fmt.Sprintf(
-		"VotingPoolAddress seriesID:%d, branch:%d, index:%d", a.seriesID, a.branch, a.index)
+		"PoolAddress seriesID:%d, branch:%d, index:%d", a.seriesID, a.branch, a.index)
 }
 
-func (a *votingPoolAddress) RedeemScript() []byte {
+func (a *poolAddress) RedeemScript() []byte {
 	return a.script
 }
 
-func (a *votingPoolAddress) Series() *SeriesData {
+func (a *poolAddress) Series() *SeriesData {
 	return a.pool.GetSeries(a.seriesID)
 }
 
-func (a *votingPoolAddress) SeriesID() uint32 {
+func (a *poolAddress) SeriesID() uint32 {
 	return a.seriesID
 }
 
-func (a *votingPoolAddress) Branch() Branch {
+func (a *poolAddress) Branch() Branch {
 	return a.branch
 }
 
-func (a *votingPoolAddress) Index() Index {
+func (a *poolAddress) Index() Index {
 	return a.index
 }
 
@@ -643,7 +643,7 @@ type PoolAddress interface {
 }
 
 type ChangeAddress struct {
-	*votingPoolAddress
+	*poolAddress
 }
 
 func (a *ChangeAddress) Next() (*ChangeAddress, error) {
@@ -653,7 +653,7 @@ func (a *ChangeAddress) Next() (*ChangeAddress, error) {
 }
 
 type WithdrawalAddress struct {
-	*votingPoolAddress
+	*poolAddress
 }
 
 // NextBefore returns the next WithdrawalAddress according to the input selection
