@@ -574,7 +574,6 @@ type votingPoolAddress struct {
 }
 
 func (vp *Pool) newVotingPoolAddress(seriesID uint32, branch Branch, index Index) (*votingPoolAddress, error) {
-	// TODO: This should return an error if branch >= len(Series.publicKeys)
 	script, err := vp.DepositScript(seriesID, branch, index)
 	if err != nil {
 		return nil, err

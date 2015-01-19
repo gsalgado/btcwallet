@@ -1213,8 +1213,33 @@ func TestDeserializationErrors(t *testing.T) {
 	}
 }
 
+func TestPoolWithdrawalAddress(t *testing.T) {
+	tearDown, _, pool := vp.TstCreatePool(t)
+	defer tearDown()
+
+	pubKeys := vp.TstPubKeys[1:4]
+	vp.TstCreateSeries(t, pool, []vp.TstSeriesDef{{ReqSigs: 2, PubKeys: pubKeys, SeriesID: 0}})
+	addr, err := pool.WithdrawalAddress(0, 0, 0)
+	if err != nil {
+		t.Fatalf("Failed to get WithdrawalAddress: %v", err)
+	}
+	if addr.SeriesID() != 0 {
+		t.Fatalf("Wrong SeriesID; got %d, want %d", addr.SeriesID(), 0)
+	}
+	if addr.Branch() != 0 {
+		t.Fatalf("Wrong Branch; got %d, want %d", addr.Branch(), 0)
+	}
+	if addr.Index() != 0 {
+		t.Fatalf("Wrong Index; got %d, want %d", addr.Index(), 0)
+	}
+
+	// When the requested branch is > len(series.publicKeys), we should get an
+	// error.
+	addr, err = pool.WithdrawalAddress(0, vp.Branch(len(pubKeys)+1), 0)
+	vp.TstCheckError(t, "", err, vp.ErrInvalidBranch)
+}
+
 func TestWithdrawalAddressNextBefore(t *testing.T) {
-	//tearDown, pool, store := vp.TstCreatePoolAndTxStore()
 	tearDown, _, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
