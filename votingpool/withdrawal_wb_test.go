@@ -91,14 +91,14 @@ func TestOutputSplittingOversizeTx(t *testing.T) {
 	seriesID, eligible := TstCreateCredits(t, pool, []int64{bigInput, smallInput}, store)
 	changeStart := newChangeAddress(t, pool, seriesID, 0)
 	w := newWithdrawal(0, []OutputRequest{request}, eligible, changeStart)
-	w.newDecoratedTx = func() *decoratedTx {
-		tx := newDecoratedTx()
+	w.newWithdrawalTx = func() *withdrawalTx {
+		tx := newWithdrawalTx()
 		tx.calculateFee = TstConstantFee(0)
 		// Trigger an output split right after the second input is added.
 		tx.isTooBig = func() bool { return len(w.current.inputs) == 2 }
 		return tx
 	}
-	w.current = w.newDecoratedTx()
+	w.current = w.newWithdrawalTx()
 
 	if err := w.fulfillRequests(); err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestSplitLastOutputNoOutputs(t *testing.T) {
 	defer tearDown()
 
 	w := newWithdrawal(0, []OutputRequest{}, []CreditInterface{}, nil)
-	w.current = createDecoratedTx(t, pool, store, []int64{}, []int64{})
+	w.current = createWithdrawalTx(t, pool, store, []int64{}, []int64{})
 
 	err := w.splitLastOutput()
 
@@ -278,7 +278,7 @@ func TestRollbackLastOutput(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{3, 3, 2, 1, 3}, []int64{3, 3, 2, 2})
+	tx := createWithdrawalTx(t, pool, store, []int64{3, 3, 2, 1, 3}, []int64{3, 3, 2, 2})
 	initialInputs := tx.inputs
 	initialOutputs := tx.outputs
 
@@ -314,7 +314,7 @@ func TestRollbackLastOutputMultipleInputsRolledBack(t *testing.T) {
 
 	// This tx will need the 3 last inputs to fulfill the second output, so they
 	// should all be rolled back and returned in the reverse order they were added.
-	tx := createDecoratedTx(t, pool, store, []int64{1, 2, 3, 4}, []int64{1, 8})
+	tx := createWithdrawalTx(t, pool, store, []int64{1, 2, 3, 4}, []int64{1, 8})
 	initialInputs := tx.inputs
 	initialOutputs := tx.outputs
 
@@ -345,7 +345,7 @@ func TestRollbackLastOutputNoInputsRolledBack(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{4}, []int64{2, 3})
+	tx := createWithdrawalTx(t, pool, store, []int64{4}, []int64{2, 3})
 	initialInputs := tx.inputs
 	initialOutputs := tx.outputs
 
@@ -375,7 +375,7 @@ func TestRollbackLastOutputNoInputsRolledBack(t *testing.T) {
 // rollBackLastOutput returns an error if there are less than two
 // outputs in the transaction.
 func TestRollBackLastOutputInsufficientOutputs(t *testing.T) {
-	tx := newDecoratedTx()
+	tx := newWithdrawalTx()
 	_, _, err := tx.rollBackLastOutput()
 	TstCheckError(t, "", err, ErrPreconditionNotMet)
 
@@ -405,8 +405,8 @@ func TestRollbackLastOutputWhenNewOutputAdded(t *testing.T) {
 	}
 
 	w := newWithdrawal(0, requests, eligible, changeStart)
-	w.newDecoratedTx = func() *decoratedTx {
-		d := newDecoratedTx()
+	w.newWithdrawalTx = func() *withdrawalTx {
+		d := newWithdrawalTx()
 		// Make a transaction too big as soon as a second output is added to it.
 		d.isTooBig = func() bool {
 			return len(d.outputs) > 1
@@ -414,7 +414,7 @@ func TestRollbackLastOutputWhenNewOutputAdded(t *testing.T) {
 		d.calculateFee = TstConstantFee(0)
 		return d
 	}
-	w.current = w.newDecoratedTx()
+	w.current = w.newWithdrawalTx()
 
 	if err := w.fulfillRequests(); err != nil {
 		t.Fatal("Unexpected error:", err)
@@ -430,14 +430,14 @@ func TestRollbackLastOutputWhenNewOutputAdded(t *testing.T) {
 	firstTx := w.transactions[0]
 	req1 := requests[0]
 	checkTxOutputs(
-		t, firstTx, []*decoratedTxOut{&decoratedTxOut{request: req1, amount: req1.amount}})
+		t, firstTx, []*withdrawalTxOut{&withdrawalTxOut{request: req1, amount: req1.amount}})
 	checkTxChangeAmount(t, firstTx, btcutil.Amount(4))
 
 	// Second tx should have one output with 2 and one changeoutput with 3 satoshis.
 	secondTx := w.transactions[1]
 	req2 := requests[1]
 	checkTxOutputs(
-		t, secondTx, []*decoratedTxOut{&decoratedTxOut{request: req2, amount: req2.amount}})
+		t, secondTx, []*withdrawalTxOut{&withdrawalTxOut{request: req2, amount: req2.amount}})
 	checkTxChangeAmount(t, secondTx, btcutil.Amount(3))
 }
 
@@ -462,8 +462,8 @@ func TestRollbackLastOutputWhenNewInputAdded(t *testing.T) {
 	}
 
 	w := newWithdrawal(0, requests, eligible, changeStart)
-	w.newDecoratedTx = func() *decoratedTx {
-		d := newDecoratedTx()
+	w.newWithdrawalTx = func() *withdrawalTx {
+		d := newWithdrawalTx()
 		// Make a transaction too big as soon as a fourth input is added to it.
 		d.isTooBig = func() bool {
 			return len(d.inputs) > 3
@@ -471,7 +471,7 @@ func TestRollbackLastOutputWhenNewInputAdded(t *testing.T) {
 		d.calculateFee = TstConstantFee(0)
 		return d
 	}
-	w.current = w.newDecoratedTx()
+	w.current = w.newWithdrawalTx()
 
 	// The rollback should be triggered right after the 4th input is added in
 	// order to fulfill the second request.
@@ -489,7 +489,7 @@ func TestRollbackLastOutputWhenNewInputAdded(t *testing.T) {
 	firstTx := w.transactions[0]
 	req1 := requests[0]
 	checkTxOutputs(
-		t, firstTx, []*decoratedTxOut{&decoratedTxOut{request: req1, amount: req1.amount}})
+		t, firstTx, []*withdrawalTxOut{&withdrawalTxOut{request: req1, amount: req1.amount}})
 	checkTxInputs(t, firstTx, eligible[0:1])
 
 	// Second tx should have outputs for the two last requests (in the same
@@ -497,18 +497,18 @@ func TestRollbackLastOutputWhenNewInputAdded(t *testing.T) {
 	// fulfill that (also in the same order as they were passed to
 	// newWithdrawal) and no change output.
 	secondTx := w.transactions[1]
-	wantOutputs := []*decoratedTxOut{
-		&decoratedTxOut{request: requests[1], amount: requests[1].amount},
-		&decoratedTxOut{request: requests[2], amount: requests[2].amount}}
+	wantOutputs := []*withdrawalTxOut{
+		&withdrawalTxOut{request: requests[1], amount: requests[1].amount},
+		&withdrawalTxOut{request: requests[2], amount: requests[2].amount}}
 	checkTxOutputs(t, secondTx, wantOutputs)
 	checkTxInputs(t, secondTx, eligible[1:4])
 }
 
-func TestDecoratedTxRemoveOutput(t *testing.T) {
+func TestWithdrawalTxRemoveOutput(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{}, []int64{1, 2})
+	tx := createWithdrawalTx(t, pool, store, []int64{}, []int64{1, 2})
 	outputs := tx.outputs
 	// Make sure we have created the transaction with the expected
 	// outputs.
@@ -524,7 +524,7 @@ func TestDecoratedTxRemoveOutput(t *testing.T) {
 		t.Fatalf("Removed output wrong; got %v, want %v", gotRemovedOutput, wantRemovedOutput)
 	}
 	// And that the remaining output is correct.
-	checkTxOutputs(t, tx, []*decoratedTxOut{remainingOutput})
+	checkTxOutputs(t, tx, []*withdrawalTxOut{remainingOutput})
 
 	// Make sure that the remaining output is really the right one.
 	if tx.outputs[0] != remainingOutput {
@@ -532,11 +532,11 @@ func TestDecoratedTxRemoveOutput(t *testing.T) {
 	}
 }
 
-func TestDecoratedTxRemoveInput(t *testing.T) {
+func TestWithdrawalTxRemoveInput(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{1, 2}, []int64{})
+	tx := createWithdrawalTx(t, pool, store, []int64{1, 2}, []int64{})
 	inputs := tx.inputs
 	// Make sure we have created the transaction with the expected inputs
 	checkTxInputs(t, tx, inputs)
@@ -558,12 +558,12 @@ func TestDecoratedTxRemoveInput(t *testing.T) {
 	}
 }
 
-func TestDecoratedTxAddChange(t *testing.T) {
+func TestWithdrawalTxAddChange(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
 	input, output, fee := int64(4e6), int64(3e6), int64(10)
-	tx := createDecoratedTx(t, pool, store, []int64{input}, []int64{output})
+	tx := createWithdrawalTx(t, pool, store, []int64{input}, []int64{output})
 	tx.calculateFee = TstConstantFee(btcutil.Amount(fee))
 
 	if !tx.addChange([]byte{}) {
@@ -581,15 +581,15 @@ func TestDecoratedTxAddChange(t *testing.T) {
 	}
 }
 
-// TestDecoratedTxAddChangeNoChange checks that decoratedTx.addChange() does not
+// TestWithdrawalTxAddChangeNoChange checks that withdrawalTx.addChange() does not
 // add a change output when there's no satoshis left after paying all
 // outputs+fees.
-func TestDecoratedTxAddChangeNoChange(t *testing.T) {
+func TestWithdrawalTxAddChangeNoChange(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
 	input, output, fee := int64(4e6), int64(4e6), int64(0)
-	tx := createDecoratedTx(t, pool, store, []int64{input}, []int64{output})
+	tx := createWithdrawalTx(t, pool, store, []int64{input}, []int64{output})
 	tx.calculateFee = TstConstantFee(btcutil.Amount(fee))
 
 	if tx.addChange([]byte{}) {
@@ -601,72 +601,72 @@ func TestDecoratedTxAddChangeNoChange(t *testing.T) {
 	}
 }
 
-func TestDecoratedTxToMsgTxNoInputsOrOutputsOrChange(t *testing.T) {
+func TestWithdrawalTxToMsgTxNoInputsOrOutputsOrChange(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{}, []int64{})
+	tx := createWithdrawalTx(t, pool, store, []int64{}, []int64{})
 	msgtx := tx.toMsgTx()
-	compareMsgTxAndDecoratedTxOutputs(t, msgtx, tx)
-	compareMsgTxAndDecoratedTxInputs(t, msgtx, tx)
+	compareMsgTxAndWithdrawalTxOutputs(t, msgtx, tx)
+	compareMsgTxAndWithdrawalTxInputs(t, msgtx, tx)
 }
 
-func TestDecoratedTxToMsgTxNoInputsOrOutputsWithChange(t *testing.T) {
+func TestWithdrawalTxToMsgTxNoInputsOrOutputsWithChange(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{}, []int64{})
+	tx := createWithdrawalTx(t, pool, store, []int64{}, []int64{})
 	tx.changeOutput = btcwire.NewTxOut(int64(1), []byte{})
 
 	msgtx := tx.toMsgTx()
 
-	compareMsgTxAndDecoratedTxOutputs(t, msgtx, tx)
-	compareMsgTxAndDecoratedTxInputs(t, msgtx, tx)
+	compareMsgTxAndWithdrawalTxOutputs(t, msgtx, tx)
+	compareMsgTxAndWithdrawalTxInputs(t, msgtx, tx)
 }
 
-func TestDecoratedTxToMsgTxWithInputButNoOutputsWithChange(t *testing.T) {
+func TestWithdrawalTxToMsgTxWithInputButNoOutputsWithChange(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{1}, []int64{})
+	tx := createWithdrawalTx(t, pool, store, []int64{1}, []int64{})
 	tx.changeOutput = btcwire.NewTxOut(int64(1), []byte{})
 
 	msgtx := tx.toMsgTx()
 
-	compareMsgTxAndDecoratedTxOutputs(t, msgtx, tx)
-	compareMsgTxAndDecoratedTxInputs(t, msgtx, tx)
+	compareMsgTxAndWithdrawalTxOutputs(t, msgtx, tx)
+	compareMsgTxAndWithdrawalTxInputs(t, msgtx, tx)
 }
 
-func TestDecoratedTxToMsgTxWithInputOutputsAndChange(t *testing.T) {
+func TestWithdrawalTxToMsgTxWithInputOutputsAndChange(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{1, 2, 3}, []int64{4, 5, 6})
+	tx := createWithdrawalTx(t, pool, store, []int64{1, 2, 3}, []int64{4, 5, 6})
 	tx.changeOutput = btcwire.NewTxOut(int64(7), []byte{})
 
 	msgtx := tx.toMsgTx()
 
-	compareMsgTxAndDecoratedTxOutputs(t, msgtx, tx)
-	compareMsgTxAndDecoratedTxInputs(t, msgtx, tx)
+	compareMsgTxAndWithdrawalTxOutputs(t, msgtx, tx)
+	compareMsgTxAndWithdrawalTxInputs(t, msgtx, tx)
 }
 
-func TestDecoratedTxInputTotal(t *testing.T) {
+func TestWithdrawalTxInputTotal(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{5}, []int64{})
+	tx := createWithdrawalTx(t, pool, store, []int64{5}, []int64{})
 
 	if tx.inputTotal() != btcutil.Amount(5) {
 		t.Fatalf("Wrong total output; got %v, want %v", tx.outputTotal(), btcutil.Amount(5))
 	}
 }
 
-func TestDecoratedTxOutputTotal(t *testing.T) {
+func TestWithdrawalTxOutputTotal(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{}, []int64{4})
+	tx := createWithdrawalTx(t, pool, store, []int64{}, []int64{4})
 	tx.changeOutput = btcwire.NewTxOut(int64(1), []byte{})
 
 	if tx.outputTotal() != btcutil.Amount(4) {
@@ -680,8 +680,8 @@ func TestSignMultiSigUTXO(t *testing.T) {
 
 	// Create a new tx with a single input that we're going to sign.
 	mgr := pool.Manager()
-	tx := createDecoratedTx(t, pool, store, []int64{4e6}, []int64{4e6})
-	sigs, err := getRawSigs([]*decoratedTx{tx})
+	tx := createWithdrawalTx(t, pool, store, []int64{4e6}, []int64{4e6})
+	sigs, err := getRawSigs([]*withdrawalTx{tx})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,7 +702,7 @@ func TestSignMultiSigUTXOUnparseablePkScript(t *testing.T) {
 	defer tearDown()
 
 	mgr := pool.Manager()
-	tx := createDecoratedTx(t, pool, store, []int64{4e6}, []int64{})
+	tx := createWithdrawalTx(t, pool, store, []int64{4e6}, []int64{})
 	msgtx := tx.toMsgTx()
 
 	unparseablePkScript := []byte{0x01}
@@ -716,7 +716,7 @@ func TestSignMultiSigUTXOPkScriptNotP2SH(t *testing.T) {
 	defer tearDown()
 
 	mgr := pool.Manager()
-	tx := createDecoratedTx(t, pool, store, []int64{4e6}, []int64{})
+	tx := createWithdrawalTx(t, pool, store, []int64{4e6}, []int64{})
 	addr, _ := btcutil.DecodeAddress("1MirQ9bwyQcGVJPwKUgapu5ouK2E2Ey4gX", mgr.Net())
 	pubKeyHashPkScript, _ := btcscript.PayToAddrScript(addr.(*btcutil.AddressPubKeyHash))
 	msgtx := tx.toMsgTx()
@@ -731,7 +731,7 @@ func TestSignMultiSigUTXORedeemScriptNotFound(t *testing.T) {
 	defer tearDown()
 
 	mgr := pool.Manager()
-	tx := createDecoratedTx(t, pool, store, []int64{4e6}, []int64{})
+	tx := createWithdrawalTx(t, pool, store, []int64{4e6}, []int64{})
 	// This is a P2SH address for which the addr manager doesn't have the redeem
 	// script.
 	addr, _ := btcutil.DecodeAddress("3Hb4xcebcKg4DiETJfwjh8sF4uDw9rqtVC", mgr.Net())
@@ -751,8 +751,8 @@ func TestSignMultiSigUTXONotEnoughSigs(t *testing.T) {
 	defer tearDown()
 
 	mgr := pool.Manager()
-	tx := createDecoratedTx(t, pool, store, []int64{4e6}, []int64{})
-	sigs, err := getRawSigs([]*decoratedTx{tx})
+	tx := createWithdrawalTx(t, pool, store, []int64{4e6}, []int64{})
+	sigs, err := getRawSigs([]*withdrawalTx{tx})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -774,8 +774,8 @@ func TestStoreTransactionsWithoutChangeOutput(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{4e6}, []int64{3e6})
-	if err := storeTransactions(store, []*decoratedTx{tx}); err != nil {
+	tx := createWithdrawalTx(t, pool, store, []int64{4e6}, []int64{3e6})
+	if err := storeTransactions(store, []*withdrawalTx{tx}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -796,12 +796,12 @@ func TestStoreTransactionsWithChangeOutput(t *testing.T) {
 
 	// Create a transaction without one input consumed partly consumed by two
 	// outputs and the rest is in the changeoutput.
-	tx := createDecoratedTx(t, pool, store, []int64{5e6}, []int64{1e6, 1e6})
+	tx := createWithdrawalTx(t, pool, store, []int64{5e6}, []int64{1e6, 1e6})
 	tx.changeOutput = btcwire.NewTxOut(int64(3e6), []byte{})
 
 	// storeTransactions() will store the tx created above, making the change
 	// available as an unspent output.
-	if err := storeTransactions(store, []*decoratedTx{tx}); err != nil {
+	if err := storeTransactions(store, []*withdrawalTx{tx}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -849,9 +849,9 @@ func TestGetRawSigs(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{5e6, 4e6}, []int64{})
+	tx := createWithdrawalTx(t, pool, store, []int64{5e6, 4e6}, []int64{})
 
-	sigs, err := getRawSigs([]*decoratedTx{tx})
+	sigs, err := getRawSigs([]*withdrawalTx{tx})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -873,14 +873,14 @@ func TestGetRawSigsOnlyOnePrivKeyAvailable(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{5e6, 4e6}, []int64{})
+	tx := createWithdrawalTx(t, pool, store, []int64{5e6, 4e6}, []int64{})
 	// Remove all private keys but the first one from the credit's series.
 	series := tx.inputs[0].Address().Series()
 	for i := range series.privateKeys[1:] {
 		series.privateKeys[i] = nil
 	}
 
-	sigs, err := getRawSigs([]*decoratedTx{tx})
+	sigs, err := getRawSigs([]*withdrawalTx{tx})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -898,12 +898,12 @@ func TestGetRawSigsUnparseableRedeemScript(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{5e6, 4e6}, []int64{})
+	tx := createWithdrawalTx(t, pool, store, []int64{5e6, 4e6}, []int64{})
 	// Change the redeem script for one of our tx inputs, to force an error in
 	// getRawSigs().
 	tx.inputs[0].Address().script = []byte{0x01}
 
-	_, err := getRawSigs([]*decoratedTx{tx})
+	_, err := getRawSigs([]*withdrawalTx{tx})
 
 	TstCheckError(t, "", err, ErrRawSigning)
 }
@@ -912,12 +912,12 @@ func TestGetRawSigsInvalidAddrBranch(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{5e6, 4e6}, []int64{})
+	tx := createWithdrawalTx(t, pool, store, []int64{5e6, 4e6}, []int64{})
 	// Change the branch of our input's address to an invalid value, to force
 	// an error in getRawSigs().
 	tx.inputs[0].Address().branch = Branch(999)
 
-	_, err := getRawSigs([]*decoratedTx{tx})
+	_, err := getRawSigs([]*withdrawalTx{tx})
 
 	TstCheckError(t, "", err, ErrInvalidBranch)
 }
@@ -944,7 +944,7 @@ func TestTxTooBig(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{5}, []int64{1})
+	tx := createWithdrawalTx(t, pool, store, []int64{5}, []int64{1})
 
 	tx.calculateSize = func() int { return txMaxSize - 1 }
 	if tx.isTooBig() {
@@ -971,7 +971,7 @@ func TestTxSizeCalculation(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	tx := createDecoratedTx(t, pool, store, []int64{1, 5}, []int64{2})
+	tx := createWithdrawalTx(t, pool, store, []int64{1, 5}, []int64{2})
 	tx.calculateFee = TstConstantFee(1)
 
 	size := tx.calculateSize()
@@ -981,7 +981,7 @@ func TestTxSizeCalculation(t *testing.T) {
 	seriesID := tx.inputs[0].Address().SeriesID()
 	tx.addChange(newChangeAddress(t, pool, seriesID, 0).Addr().ScriptAddress())
 	msgtx := tx.toMsgTx()
-	sigs, err := getRawSigs([]*decoratedTx{tx})
+	sigs, err := getRawSigs([]*withdrawalTx{tx})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1010,7 +1010,7 @@ func TestTxSizeCalculation(t *testing.T) {
 }
 
 func TestTxFeeEstimationForSmallTx(t *testing.T) {
-	tx := newDecoratedTx()
+	tx := newWithdrawalTx()
 
 	// A tx that is smaller than 1000 bytes in size should have a fee of 10000
 	// satoshis.
@@ -1024,7 +1024,7 @@ func TestTxFeeEstimationForSmallTx(t *testing.T) {
 }
 
 func TestTxFeeEstimationForLargeTx(t *testing.T) {
-	tx := newDecoratedTx()
+	tx := newWithdrawalTx()
 
 	// A tx that is larger than 1000 bytes in size should have a fee of 1e3
 	// satoshis plus 1e3 for every 1000 bytes.
@@ -1071,8 +1071,8 @@ func checkNonEmptySigsForPrivKeys(t *testing.T, txSigs TxSigs, privKeys []*hdkey
 }
 
 // checkTxOutputs uses reflect.DeepEqual() to ensure that the tx outputs match
-// the given slice of decoratedTxOuts.
-func checkTxOutputs(t *testing.T, tx *decoratedTx, outputs []*decoratedTxOut) {
+// the given slice of withdrawalTxOuts.
+func checkTxOutputs(t *testing.T, tx *withdrawalTx, outputs []*withdrawalTxOut) {
 	nOutputs := len(outputs)
 	if len(tx.outputs) != nOutputs {
 		t.Fatalf("Wrong number of outputs in tx; got %d, want %d", len(tx.outputs), nOutputs)
@@ -1108,7 +1108,7 @@ func checkMsgTxOutputs(t *testing.T, msgtx *btcwire.MsgTx, requests []OutputRequ
 }
 
 // checkTxInputs ensures that the tx.inputs match the given inputs.
-func checkTxInputs(t *testing.T, tx *decoratedTx, inputs []CreditInterface) {
+func checkTxInputs(t *testing.T, tx *withdrawalTx, inputs []CreditInterface) {
 	if len(tx.inputs) != len(inputs) {
 		t.Fatalf("Wrong number of inputs in tx; got %d, want %d", len(tx.inputs), len(inputs))
 	}
@@ -1133,7 +1133,7 @@ func signTxAndValidate(t *testing.T, mgr *waddrmgr.Manager, tx *btcwire.MsgTx, t
 	}
 }
 
-func compareMsgTxAndDecoratedTxInputs(t *testing.T, msgtx *btcwire.MsgTx, tx *decoratedTx) {
+func compareMsgTxAndWithdrawalTxInputs(t *testing.T, msgtx *btcwire.MsgTx, tx *withdrawalTx) {
 	if len(msgtx.TxIn) != len(tx.inputs) {
 		t.Fatalf("Wrong number of inputs; got %d, want %d", len(msgtx.TxIn), len(tx.inputs))
 	}
@@ -1145,7 +1145,7 @@ func compareMsgTxAndDecoratedTxInputs(t *testing.T, msgtx *btcwire.MsgTx, tx *de
 	}
 }
 
-func compareMsgTxAndDecoratedTxOutputs(t *testing.T, msgtx *btcwire.MsgTx, tx *decoratedTx) {
+func compareMsgTxAndWithdrawalTxOutputs(t *testing.T, msgtx *btcwire.MsgTx, tx *withdrawalTx) {
 	nOutputs := len(tx.outputs)
 
 	if tx.changeOutput != nil {
@@ -1181,7 +1181,7 @@ func compareMsgTxAndDecoratedTxOutputs(t *testing.T, msgtx *btcwire.MsgTx, tx *d
 	}
 }
 
-func checkTxChangeAmount(t *testing.T, tx *decoratedTx, amount btcutil.Amount) {
+func checkTxChangeAmount(t *testing.T, tx *withdrawalTx, amount btcutil.Amount) {
 	if !tx.hasChange() {
 		t.Fatalf("Transaction has no change.")
 	}
@@ -1203,7 +1203,7 @@ func newChangeAddress(t *testing.T, pool *Pool, seriesID uint32, idx Index) *Cha
 // given tx matches newAmount and that the splitRequest amount is equal to
 // origAmount - newAmount. It also checks that splitRequest is identical (except
 // for its amount) to the request of the last output in the tx.
-func checkLastOutputWasSplit(t *testing.T, w *withdrawal, tx *decoratedTx,
+func checkLastOutputWasSplit(t *testing.T, w *withdrawal, tx *withdrawalTx,
 	origAmount, newAmount btcutil.Amount) {
 	splitRequest := w.pendingRequests[0]
 	lastOutput := tx.outputs[len(tx.outputs)-1]

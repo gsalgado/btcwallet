@@ -188,43 +188,41 @@ type withdrawal struct {
 	roundID         uint32
 	status          *WithdrawalStatus
 	changeStart     *ChangeAddress
-	transactions    []*decoratedTx
+	transactions    []*withdrawalTx
 	pendingRequests []OutputRequest
 	eligibleInputs  []CreditInterface
-	current         *decoratedTx
-	// newDecoratedTx is a member of the structure so it can be replaced for
+	current         *withdrawalTx
+	// newWithdrawalTx is a member of the structure so it can be replaced for
 	// testing purposes.
-	newDecoratedTx func() *decoratedTx
+	newWithdrawalTx func() *withdrawalTx
 }
 
-// decoratedTxOut wraps an OutputRequest and provides a separate amount field.
+// withdrawalTxOut wraps an OutputRequest and provides a separate amount field.
 // It is necessary because some requests may be partially fulfilled or split
 // across transactions.
-type decoratedTxOut struct {
+type withdrawalTxOut struct {
 	// Notice that in the case of a split output, the OutputRequest here will
 	// be a copy of the original one with the amount being the remainder of the
 	// originally requested amount minus the amounts fulfilled by other
-	// decoratedTxOut. The original OutputRequest, if needed, can be obtained
+	// withdrawalTxOut. The original OutputRequest, if needed, can be obtained
 	// from WithdrawalStatus.outputs.
 	request OutputRequest
 	amount  btcutil.Amount
 }
 
-// String makes decoratedTxOut satisfy the Stringer interface.
-func (o *decoratedTxOut) String() string {
-	return fmt.Sprintf("decoratedTxOut fulfilling %v of %s", o.amount, o.request)
+// String makes withdrawalTxOut satisfy the Stringer interface.
+func (o *withdrawalTxOut) String() string {
+	return fmt.Sprintf("withdrawalTxOut fulfilling %v of %s", o.amount, o.request)
 }
-func (o *decoratedTxOut) pkScript() []byte {
+
+func (o *withdrawalTxOut) pkScript() []byte {
 	return o.request.pkScript
 }
 
-// A btcwire.MsgTx decorated with some supporting data structures needed throughout the
-// withdrawal process.
-// XXX: Rename this to inProgressTx or something like that, and fix the comment
-// above. May also want to rename decoratedTxOut.
-type decoratedTx struct {
+// withdrawalTx represents a transaction constructed by the withdrawal process.
+type withdrawalTx struct {
 	inputs  []CreditInterface
-	outputs []*decoratedTxOut
+	outputs []*withdrawalTxOut
 	fee     btcutil.Amount
 
 	// calculateFee calculates the expected network fees for this transaction.
@@ -244,8 +242,8 @@ type decoratedTx struct {
 	changeOutput *btcwire.TxOut
 }
 
-func newDecoratedTx() *decoratedTx {
-	tx := &decoratedTx{}
+func newWithdrawalTx() *withdrawalTx {
+	tx := &withdrawalTx{}
 	tx.calculateFee = func() btcutil.Amount {
 		return btcutil.Amount(1+tx.calculateSize()/1000) * feeIncrement
 	}
@@ -262,7 +260,7 @@ func newDecoratedTx() *decoratedTx {
 }
 
 // inputTotal returns the sum amount of all inputs in this tx.
-func (tx *decoratedTx) inputTotal() (total btcutil.Amount) {
+func (tx *withdrawalTx) inputTotal() (total btcutil.Amount) {
 	for _, input := range tx.inputs {
 		total += input.Amount()
 	}
@@ -271,7 +269,7 @@ func (tx *decoratedTx) inputTotal() (total btcutil.Amount) {
 
 // outputTotal returns the sum amount of all outputs in this tx. It does not
 // include the amount for the change output, in case the tx has one.
-func (tx *decoratedTx) outputTotal() (total btcutil.Amount) {
+func (tx *withdrawalTx) outputTotal() (total btcutil.Amount) {
 	for _, output := range tx.outputs {
 		total += output.amount
 	}
@@ -279,12 +277,12 @@ func (tx *decoratedTx) outputTotal() (total btcutil.Amount) {
 }
 
 // hasChange returns true if this transaction has a change output.
-func (tx *decoratedTx) hasChange() bool {
+func (tx *withdrawalTx) hasChange() bool {
 	return tx.changeOutput != nil
 }
 
 // toMsgTx generates a btcwire.MsgTx with this tx's inputs and outputs.
-func (tx *decoratedTx) toMsgTx() *btcwire.MsgTx {
+func (tx *withdrawalTx) toMsgTx() *btcwire.MsgTx {
 	msgtx := btcwire.NewMsgTx()
 	for _, o := range tx.outputs {
 		msgtx.AddTxOut(btcwire.NewTxOut(int64(o.amount), o.pkScript()))
@@ -301,13 +299,13 @@ func (tx *decoratedTx) toMsgTx() *btcwire.MsgTx {
 }
 
 // addOutput adds a new output to this transaction.
-func (tx *decoratedTx) addOutput(request OutputRequest) {
+func (tx *withdrawalTx) addOutput(request OutputRequest) {
 	log.Debugf("Added tx output sending %s to %s", request.amount, request.address)
-	tx.outputs = append(tx.outputs, &decoratedTxOut{request: request, amount: request.amount})
+	tx.outputs = append(tx.outputs, &withdrawalTxOut{request: request, amount: request.amount})
 }
 
 // removeOutput removes the last added output and returns it.
-func (tx *decoratedTx) removeOutput() *decoratedTxOut {
+func (tx *withdrawalTx) removeOutput() *withdrawalTxOut {
 	removed := tx.outputs[len(tx.outputs)-1]
 	tx.outputs = tx.outputs[:len(tx.outputs)-1]
 	log.Debugf("Removed tx output sending %s to %s", removed.amount, removed.request.address)
@@ -315,13 +313,13 @@ func (tx *decoratedTx) removeOutput() *decoratedTxOut {
 }
 
 // addInput adds a new input to this transaction.
-func (tx *decoratedTx) addInput(input CreditInterface) {
+func (tx *withdrawalTx) addInput(input CreditInterface) {
 	log.Debugf("Added tx input with amount %v", input.Amount())
 	tx.inputs = append(tx.inputs, input)
 }
 
 // removeInput removes the last added input and returns it.
-func (tx *decoratedTx) removeInput() CreditInterface {
+func (tx *withdrawalTx) removeInput() CreditInterface {
 	removed := tx.inputs[len(tx.inputs)-1]
 	tx.inputs = tx.inputs[:len(tx.inputs)-1]
 	log.Debugf("Removed tx input with amount %v", removed.Amount())
@@ -335,7 +333,7 @@ func (tx *decoratedTx) removeInput() CreditInterface {
 // This method must be called only once, and no extra inputs/outputs should be
 // added after it's called. Also, callsites must make sure adding a change
 // output won't cause the tx to exceed the size limit.
-func (tx *decoratedTx) addChange(pkScript []byte) bool {
+func (tx *withdrawalTx) addChange(pkScript []byte) bool {
 	tx.fee = tx.calculateFee()
 	change := tx.inputTotal() - tx.outputTotal() - tx.fee
 	log.Debugf("addChange: input total %v, output total %v, fee %v", tx.inputTotal(),
@@ -354,7 +352,7 @@ func (tx *decoratedTx) addChange(pkScript []byte) bool {
 //
 // The tx needs to have two or more outputs. The case with only one output must
 // be handled separately (by the split output procedure).
-func (tx *decoratedTx) rollBackLastOutput() ([]CreditInterface, *decoratedTxOut, error) {
+func (tx *withdrawalTx) rollBackLastOutput() ([]CreditInterface, *withdrawalTxOut, error) {
 	// Check precondition: At least two outputs are required in the transaction.
 	if len(tx.outputs) < 2 {
 		str := fmt.Sprintf("at least two outputs expected; got %d", len(tx.outputs))
@@ -383,12 +381,12 @@ func newWithdrawal(roundID uint32, requests []OutputRequest, inputs []CreditInte
 	}
 	return &withdrawal{
 		roundID:         roundID,
-		current:         newDecoratedTx(),
+		current:         newWithdrawalTx(),
 		pendingRequests: requests,
 		eligibleInputs:  inputs,
 		status:          &WithdrawalStatus{outputs: outputs},
 		changeStart:     changeStart,
-		newDecoratedTx:  newDecoratedTx,
+		newWithdrawalTx: newWithdrawalTx,
 	}
 }
 
@@ -422,7 +420,7 @@ func (vp *Pool) Withdrawal(
 //
 // TODO: Wrap the errors we catch here in a custom votingpool.Error before
 // returning.
-func storeTransactions(txStore *txstore.Store, transactions []*decoratedTx) error {
+func storeTransactions(txStore *txstore.Store, transactions []*withdrawalTx) error {
 	for _, tx := range transactions {
 		msgtx := tx.toMsgTx()
 		txr, err := txStore.InsertTx(btcutil.NewTx(msgtx), nil)
@@ -597,7 +595,7 @@ func (w *withdrawal) finalizeCurrentTx() error {
 	}
 
 	w.transactions = append(w.transactions, tx)
-	w.current = w.newDecoratedTx()
+	w.current = w.newWithdrawalTx()
 	return nil
 }
 
@@ -691,7 +689,7 @@ func (w *withdrawal) splitLastOutput() error {
 	return nil
 }
 
-func (w *withdrawal) updateStatusFor(tx *decoratedTx) {
+func (w *withdrawal) updateStatusFor(tx *withdrawalTx) {
 	// TODO
 }
 
@@ -711,7 +709,7 @@ func Ntxid(tx *btcwire.MsgTx) string {
 // creditsUsed must have one entry for every transaction, with the transaction's ntxid
 // as the key and a slice of credits spent by that transaction as the value.
 // It returns a map of ntxids to signature lists.
-func getRawSigs(transactions []*decoratedTx) (map[string]TxSigs, error) {
+func getRawSigs(transactions []*withdrawalTx) (map[string]TxSigs, error) {
 	sigs := make(map[string]TxSigs)
 	for _, tx := range transactions {
 		txSigs := make(TxSigs, len(tx.inputs))
@@ -864,7 +862,7 @@ func validateSigScript(msgtx *btcwire.MsgTx, idx int, pkScript []byte) error {
 
 // calculateSize returns an estimate of the serialized size (in bytes) of the
 // given transaction. It assumes all tx inputs are P2SH multi-sig.
-func calculateSize(tx *decoratedTx) int {
+func calculateSize(tx *withdrawalTx) int {
 	msgtx := tx.toMsgTx()
 	// Assume that there will always be a change output, for simplicity. We
 	// simulate that by simply copying the first output as all we care about is
