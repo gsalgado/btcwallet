@@ -26,14 +26,14 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/conformal/btcnet"
-	"github.com/conformal/btcscript"
-	"github.com/conformal/btcutil"
-	"github.com/conformal/btcutil/hdkeychain"
-	"github.com/conformal/btcwallet/txstore"
-	"github.com/conformal/btcwallet/waddrmgr"
-	"github.com/conformal/btcwallet/walletdb"
-	"github.com/conformal/btcwire"
+	"github.com/btcsuite/btcnet"
+	"github.com/btcsuite/btcscript"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/btcsuite/btcwallet/txstore"
+	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/btcsuite/btcwire"
 )
 
 var (

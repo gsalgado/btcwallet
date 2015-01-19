@@ -21,10 +21,10 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/conformal/btcutil"
-	"github.com/conformal/btcwallet/txstore"
-	"github.com/conformal/btcwallet/waddrmgr"
-	"github.com/conformal/btcwire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/txstore"
+	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwire"
 )
 
 var (

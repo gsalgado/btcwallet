@@ -21,12 +21,12 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/conformal/btcscript"
-	"github.com/conformal/btcutil"
-	"github.com/conformal/btcwallet/txstore"
-	"github.com/conformal/btcwallet/waddrmgr"
-	"github.com/conformal/btcwire"
-	"github.com/conformal/fastsha256"
+	"github.com/btcsuite/btcscript"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/txstore"
+	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwire"
+	"github.com/btcsuite/fastsha256"
 )
 
 /*  ==== What needs to be stored in the DB, and other notes ====

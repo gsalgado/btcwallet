@@ -20,10 +20,10 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/conformal/btcutil"
-	"github.com/conformal/btcutil/hdkeychain"
-	vp "github.com/conformal/btcwallet/votingpool"
-	"github.com/conformal/btcwire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/hdkeychain"
+	vp "github.com/btcsuite/btcwallet/votingpool"
+	"github.com/btcsuite/btcwire"
 )
 
 func TestWithdrawal(t *testing.T) {

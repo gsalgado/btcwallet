@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/conformal/btcnet"
-	"github.com/conformal/btcutil"
-	"github.com/conformal/btcwallet/txstore"
-	"github.com/conformal/btcwire"
+	"github.com/btcsuite/btcnet"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/txstore"
+	"github.com/btcsuite/btcwire"
 )
 
 // CreditInterface is an abstraction over credits used in a voting
