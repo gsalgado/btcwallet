@@ -31,7 +31,21 @@ var TstBranchOrder = branchOrder
 
 // TstExistsSeries checks whether a series is stored in the database.
 func (vp *Pool) TstExistsSeries(seriesID uint32) (bool, error) {
-	return vp.existsSeries(seriesID)
+	var exists bool
+	err := vp.namespace.View(
+		func(tx walletdb.Tx) error {
+			bucket := tx.RootBucket().Bucket(vp.ID)
+			if bucket == nil {
+				exists = false
+				return nil
+			}
+			exists = bucket.Get(uint32ToBytes(seriesID)) != nil
+			return nil
+		})
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 // TstNamespace exposes the Pool's namespace as it's needed in some tests.

@@ -150,18 +150,6 @@ func TstCreateSeries(t *testing.T, pool *Pool, definitions []TstSeriesDef) {
 	}
 }
 
-func TstCreatePkScripts(t *testing.T, pool *Pool, aRange addressRange) [][]byte {
-	var pkScripts [][]byte
-	for index := aRange.StartIndex; index <= aRange.StopIndex; index++ {
-		for branch := aRange.StartBranch; branch <= aRange.StopBranch; branch++ {
-
-			pkScript := TstCreatePkScript(t, pool, aRange.SeriesID, branch, index)
-			pkScripts = append(pkScripts, pkScript)
-		}
-	}
-	return pkScripts
-}
-
 func TstCreateMasterKey(t *testing.T, seed []byte) *hdkeychain.ExtendedKey {
 	key, err := hdkeychain.NewMaster(seed)
 	if err != nil {
@@ -351,15 +339,14 @@ func TstNewWithdrawalOutput(request OutputRequest, status string, outpoints []Ou
 	return output
 }
 
-func TstConstantFee(fee btcutil.Amount) func() btcutil.Amount {
-	return func() btcutil.Amount { return fee }
+func TstNewWithdrawalAddress(t *testing.T, pool *Pool, seriesID uint32, branch Branch, index Index) *WithdrawalAddress {
+	addr, err := pool.WithdrawalAddress(seriesID, branch, index)
+	if err != nil {
+		t.Fatalf("Failed to get WithdrawalAddress: %v", err)
+	}
+	return addr
 }
 
-func TstNewAddressRange(t *testing.T, seriesID uint32, startBranch, stopBranch Branch,
-	startIndex, stopIndex Index) *addressRange {
-	aRange, err := newAddressRange(seriesID, startBranch, stopBranch, startIndex, stopIndex)
-	if err != nil {
-		t.Fatalf("Error creating addressRange: %v", err)
-	}
-	return aRange
+func TstConstantFee(fee btcutil.Amount) func() btcutil.Amount {
+	return func() btcutil.Amount { return fee }
 }

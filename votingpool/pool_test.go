@@ -1212,3 +1212,73 @@ func TestDeserializationErrors(t *testing.T) {
 		vp.TstCheckError(t, fmt.Sprintf("Test #%d", testNum), err, test.err)
 	}
 }
+
+func TestWithdrawalAddressNextBefore(t *testing.T) {
+	//tearDown, pool, store := vp.TstCreatePoolAndTxStore()
+	tearDown, _, pool := vp.TstCreatePool(t)
+	defer tearDown()
+
+	series := []vp.TstSeriesDef{
+		{ReqSigs: 2, PubKeys: vp.TstPubKeys[1:4], SeriesID: 0},
+		{ReqSigs: 2, PubKeys: vp.TstPubKeys[3:6], SeriesID: 1},
+	}
+	vp.TstCreateSeries(t, pool, series)
+	stopSeriesID := uint32(2)
+
+	lastIdx := pool.GetSeries(0).LastUsedIndexFor(0)
+	addr := vp.TstNewWithdrawalAddress(t, pool, 0, 0, lastIdx-1)
+	var err error
+	// NextBefore() first increments just the branch, which ranges from 0 to 2
+	// here (because our series have 3 public keys).
+	for _, i := range []int{1, 2} {
+		addr, err = addr.NextBefore(stopSeriesID)
+		if err != nil {
+			t.Fatalf("Failed to get next address: %v", err)
+		}
+		checkWithdrawalAddressMatches(t, addr, 0, vp.Branch(i), lastIdx-1)
+	}
+
+	// The last NextBefore() above gave us the addr with branch=2,
+	// idx=lastIdx-1, so the next 3 calls should give us the addresses with
+	// branch=[0-2] and idx=lastIdx.
+	for _, i := range []int{0, 1, 2} {
+		addr, err = addr.NextBefore(stopSeriesID)
+		if err != nil {
+			t.Fatalf("Failed to get next address: %v", err)
+		}
+		checkWithdrawalAddressMatches(t, addr, 0, vp.Branch(i), lastIdx)
+	}
+
+	// Now we've gone through all the available branch/idx combinations, so
+	// we should move to the next series and start again with branch=0, idx=0.
+	for _, i := range []int{0, 1, 2} {
+		addr, err = addr.NextBefore(stopSeriesID)
+		if err != nil {
+			t.Fatalf("Failed to get next address: %v", err)
+		}
+		checkWithdrawalAddressMatches(t, addr, 1, vp.Branch(i), 0)
+	}
+
+	// Finally check that NextBefore() returns nil when we've reached the last
+	// available address before stopSeriesID.
+	addr = vp.TstNewWithdrawalAddress(t, pool, 1, 2, lastIdx)
+	addr, err = addr.NextBefore(stopSeriesID)
+	if err != nil {
+		t.Fatalf("Failed to get next address: %v", err)
+	}
+	if addr != nil {
+		t.Fatalf("Wrong WithdrawalAddress; got %s, want nil", addr.AddrIdentifier())
+	}
+}
+
+func checkWithdrawalAddressMatches(t *testing.T, addr *vp.WithdrawalAddress, seriesID uint32, branch vp.Branch, index vp.Index) {
+	if addr.SeriesID() != seriesID {
+		t.Fatalf("Wrong seriesID; got %d, want %d", addr.SeriesID(), seriesID)
+	}
+	if addr.Branch() != branch {
+		t.Fatalf("Wrong branch; got %d, want %d", addr.Branch(), branch)
+	}
+	if addr.Index() != index {
+		t.Fatalf("Wrong index; got %d, want %d", addr.Index(), index)
+	}
+}

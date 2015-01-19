@@ -52,6 +52,12 @@ type SeriesData struct {
 	privateKeys []*hdkeychain.ExtendedKey
 }
 
+func (s *SeriesData) LastUsedIndexFor(branch Branch) Index {
+	// FIXME: We need to store the last used index for every (seriesID, branch)
+	// in the DB somewhere so that we can implement this.
+	return 50
+}
+
 // Pool represents an arrangement of notary servers to securely
 // store and account for customer cryptocurrency deposits and to redeem
 // valid withdrawals. For details about how the arrangement works, see
@@ -307,6 +313,7 @@ func (vp *Pool) putSeries(version, seriesID, reqSigs uint32, inRawPubKeys []stri
 //
 // - rawPubKeys has to contain three or more public keys;
 // - reqSigs has to be less or equal than the number of public keys in rawPubKeys.
+// TODO: Return an error if the given seriesID is not equal to lastSeriesID+1
 func (vp *Pool) CreateSeries(version, seriesID, reqSigs uint32, rawPubKeys []string) error {
 	if series := vp.GetSeries(seriesID); series != nil {
 		str := fmt.Sprintf("series #%d already exists", seriesID)
@@ -433,26 +440,6 @@ func (vp *Pool) LoadAllSeries() error {
 		}
 	}
 	return nil
-}
-
-// existsSeries checks whether a series is stored in the database.
-// Used solely by the series creation test.
-func (vp *Pool) existsSeries(seriesID uint32) (bool, error) {
-	var exists bool
-	err := vp.namespace.View(
-		func(tx walletdb.Tx) error {
-			bucket := tx.RootBucket().Bucket(vp.ID)
-			if bucket == nil {
-				exists = false
-				return nil
-			}
-			exists = bucket.Get(uint32ToBytes(seriesID)) != nil
-			return nil
-		})
-	if err != nil {
-		return false, err
-	}
-	return exists, nil
 }
 
 // Change the order of the pubkeys based on branch number.
@@ -587,6 +574,7 @@ type votingPoolAddress struct {
 }
 
 func (vp *Pool) newVotingPoolAddress(seriesID uint32, branch Branch, index Index) (*votingPoolAddress, error) {
+	// TODO: This should return an error if branch >= len(Series.publicKeys)
 	script, err := vp.DepositScript(seriesID, branch, index)
 	if err != nil {
 		return nil, err
@@ -607,6 +595,11 @@ func (a *votingPoolAddress) String() string {
 
 func (a *votingPoolAddress) Addr() btcutil.Address {
 	return a.addr
+}
+
+func (a *votingPoolAddress) AddrIdentifier() string {
+	return fmt.Sprintf(
+		"VotingPoolAddress seriesID:%d, branch:%d, index:%d", a.seriesID, a.branch, a.index)
 }
 
 func (a *votingPoolAddress) RedeemScript() []byte {
@@ -634,11 +627,37 @@ type ChangeAddress struct {
 }
 
 func (a *ChangeAddress) Next() (*ChangeAddress, error) {
+	// TODO: Check that a.index+1 fits in a uint32 before calling ChangeAddress.
 	return a.pool.ChangeAddress(a.seriesID, a.index+1)
 }
 
 type WithdrawalAddress struct {
 	*votingPoolAddress
+}
+
+// NextBefore returns the next WithdrawalAddress according to the input selection
+// rules: http://opentransactions.org/wiki/index.php/Input_Selection_Algorithm_(voting_pools)
+// It returns nil if the new address' seriesID is >= stopSeriesID.
+func (a *WithdrawalAddress) NextBefore(stopSeriesID uint32) (*WithdrawalAddress, error) {
+	branch := a.branch + 1
+	idx := a.index
+	seriesID := a.seriesID
+	// WithdrawalAddress.branch ranges from 0 to len(pubKeys)-1, so when we
+	// reach len(pubKeys) we set it to 0 and increment the index/seriesID.
+	if int(branch) == len(a.Series().publicKeys) {
+		branch = 0
+		if idx == a.Series().LastUsedIndexFor(branch) {
+			idx = 0
+			seriesID++
+		} else {
+			idx++
+		}
+	}
+
+	if seriesID >= stopSeriesID {
+		return nil, nil
+	}
+	return a.pool.WithdrawalAddress(seriesID, branch, idx)
 }
 
 // EmpowerSeries adds the given extended private key (in raw format) to the

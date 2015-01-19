@@ -23,7 +23,6 @@ import (
 
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/txstore"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwire"
 )
 
@@ -38,24 +37,19 @@ func TestGetEligibleInputs(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	// create some eligible inputs in a specified range.
-	aRanges := []*addressRange{
-		TstNewAddressRange(t, 0, 0, 3, 0, 4), TstNewAddressRange(t, 1, 0, 3, 0, 6)}
-	// define two series.
 	series := []TstSeriesDef{
-		{ReqSigs: 2, PubKeys: TstPubKeys[1:4], SeriesID: aRanges[0].SeriesID},
-		{ReqSigs: 2, PubKeys: TstPubKeys[3:6], SeriesID: aRanges[1].SeriesID},
+		{ReqSigs: 2, PubKeys: TstPubKeys[1:4], SeriesID: 0},
+		{ReqSigs: 2, PubKeys: TstPubKeys[3:6], SeriesID: 1},
 	}
+	TstCreateSeries(t, pool, series)
+	scripts := append(
+		getPKScriptsForAddressRange(t, pool, 0, 0, 2, 0, 4),
+		getPKScriptsForAddressRange(t, pool, 1, 0, 2, 0, 6)...)
+
 	oldChainHeight := 11112
 	chainHeight := oldChainHeight + minConf + 10
 
-	// create the series.
-	TstCreateSeries(t, pool, series)
-
-	// create all the scripts.
-	scripts := createScripts(t, pool.Manager(), pool, aRanges)
-
-	// let's make two eligible inputs pr. script/address.
+	// Create two eligible inputs at each address.
 	expNoEligibleInputs := 2 * len(scripts)
 	eligibleAmounts := []int64{int64(dustThreshold + 1), int64(dustThreshold + 1)}
 	var inputs []txstore.Credit
@@ -66,10 +60,11 @@ func TestGetEligibleInputs(t *testing.T) {
 		inputs = append(inputs, created...)
 	}
 
-	// Call InputSelection on the range.
 	totalAmount := btcutil.Amount(len(inputs)) * inputs[0].Amount()
+	startAddr := TstNewWithdrawalAddress(t, pool, 0, 0, 0)
+	lastSeriesID := uint32(1)
 	eligibles, err := pool.getEligibleInputs(
-		store, aRanges, dustThreshold, int32(chainHeight), minConf, totalAmount)
+		store, startAddr, lastSeriesID, dustThreshold, int32(chainHeight), minConf, totalAmount)
 	if err != nil {
 		t.Fatal("InputSelection failed:", err)
 	}
@@ -94,11 +89,10 @@ func TestGetEligibleInputsAmountLimit(t *testing.T) {
 	defer tearDown()
 
 	seriesID := uint32(0)
-	aRanges := []*addressRange{TstNewAddressRange(t, seriesID, 0, 3, 0, 4)}
 	TstCreateSeries(
 		t, pool, []TstSeriesDef{{ReqSigs: 2, PubKeys: TstPubKeys[1:4], SeriesID: seriesID}})
-	scripts := createScripts(t, pool.Manager(), pool, aRanges)
-	// Create one eligible input on every address in the range above.
+	scripts := getPKScriptsForAddressRange(t, pool, seriesID, 0, 3, 0, 4)
+	// Create one eligible input at each address.
 	oldChainHeight := 11112
 	chainHeight := oldChainHeight + minConf + 10
 	var inputs []txstore.Credit
@@ -112,8 +106,10 @@ func TestGetEligibleInputsAmountLimit(t *testing.T) {
 	// Call getEligibleInputs() with an upper amount limit of half the total of
 	// all credits we created above.
 	amountTotal := btcutil.Amount(len(inputs)) * (dustThreshold + 1)
+	startAddr := TstNewWithdrawalAddress(t, pool, seriesID, 0, 0)
+	lastSeriesID := uint32(0)
 	eligibles, err := pool.getEligibleInputs(
-		store, aRanges, dustThreshold, int32(chainHeight), minConf, amountTotal/2)
+		store, startAddr, lastSeriesID, dustThreshold, int32(chainHeight), minConf, amountTotal/2)
 	if err != nil {
 		t.Fatal("InputSelection failed:", err)
 	}
@@ -125,56 +121,6 @@ func TestGetEligibleInputsAmountLimit(t *testing.T) {
 		t.Fatalf("Unexpected number of eligible inputs; got %d, want %d", len(eligibles),
 			len(inputs)/2)
 	}
-}
-
-func TestGetEligibleInputsFromSeries(t *testing.T) {
-	teardown, mgr, pool := TstCreatePool(t)
-	defer teardown()
-	// create some eligible inputs in a specified range.
-	aRange := TstNewAddressRange(t, 0, 0, 2, 0, 4)
-	blockHeight := 11112
-	currentChainHeight := blockHeight + minConf + 10
-	store := txstore.New("/tmp/tx.bin")
-	eligibleAmounts := []int64{int64(dustThreshold + 1), int64(dustThreshold + 1)}
-
-	// define a series.
-	series := []TstSeriesDef{{ReqSigs: 2, PubKeys: TstPubKeys[1:4], SeriesID: aRange.SeriesID}}
-	TstCreateSeries(t, pool, series)
-
-	// create all the scripts.
-	scripts := createScripts(t, mgr, pool, []*addressRange{aRange})
-
-	// Let's create two eligible inputs for each of the scripts.
-	expNumberOfEligibleInputs := 2 * len(scripts)
-	var inputs []txstore.Credit
-	for i := 0; i < len(scripts); i++ {
-		blockIndex := int(i) + 1
-		created := TstCreateInputsOnBlock(t, store, blockIndex, blockHeight,
-			scripts[i], eligibleAmounts)
-		inputs = append(inputs, created...)
-	}
-
-	// Call InputSelection on the range.
-	totalAmount := btcutil.Amount(len(inputs)) * inputs[0].Amount()
-	eligibles, err := pool.getEligibleInputsFromSeries(
-		store, aRange, dustThreshold, int32(currentChainHeight), minConf, totalAmount)
-	if err != nil {
-		t.Fatal("InputSelection failed:", err)
-	}
-
-	// Check we got the expected number of eligible inputs.
-	if len(eligibles) != expNumberOfEligibleInputs {
-		t.Fatalf("Wrong number of eligible inputs returned. Got: %d, want: %d.",
-			len(eligibles), expNumberOfEligibleInputs)
-	}
-
-	// Check that the returned eligibles are sorted by address.
-	if !sort.IsSorted(byAddress(eligibles)) {
-		t.Fatal("Eligible inputs are not sorted.")
-	}
-
-	// Check that all credits are unique
-	checkUniqueness(t, eligibles)
 }
 
 func TestEligibleInputsAreEligible(t *testing.T) {
@@ -235,35 +181,6 @@ func TestNonEligibleInputsAreNotEligible(t *testing.T) {
 		t.Errorf("Input is eligible and it should not be.")
 	}
 
-}
-
-func TestAddressRange(t *testing.T) {
-
-	// Test some valid ranges.
-	one := TstNewAddressRange(t, 0, 0, 0, 0, 0)
-	got := one.numAddresses()
-	if got != uint64(1) {
-		t.Fatalf("Wrong range. Got %d, want: %d", got, 1)
-	}
-
-	two := TstNewAddressRange(t, 0, 0, 0, 0, 1)
-	got = two.numAddresses()
-	if got != uint64(2) {
-		t.Fatalf("Wrong range. Got %d, want: %d", got, 2)
-	}
-
-	four := TstNewAddressRange(t, 0, 0, 1, 0, 1)
-	got = four.numAddresses()
-	if got != uint64(4) {
-		t.Fatalf("Wrong range. Got %d, want: %d", got, 4)
-	}
-
-	// Test invalid ranges.
-	_, err := newAddressRange(0, 1, 0, 0, 1)
-	TstCheckError(t, "", err, ErrInvalidAddressRange)
-
-	_, err = newAddressRange(0, 0, 1, 1, 0)
-	TstCheckError(t, "", err, ErrInvalidAddressRange)
 }
 
 func TestCreditInterfaceSortingByAddress(t *testing.T) {
@@ -333,10 +250,7 @@ func (c *TstFakeCredit) OutPoint() *btcwire.OutPoint {
 func TstNewFakeCredit(t *testing.T, pool *Pool, series uint32, index Index, branch Branch, txSha []byte, outputIdx int) *TstFakeCredit {
 	var hash btcwire.ShaHash
 	copy(hash[:], txSha)
-	addr, err := pool.WithdrawalAddress(series, branch, index)
-	if err != nil {
-		t.Fatalf("WithdrawalAddress failed: %v", err)
-	}
+	addr := TstNewWithdrawalAddress(t, pool, series, branch, index)
 	return &TstFakeCredit{
 		addr:        *addr,
 		txSha:       &hash,
@@ -374,17 +288,12 @@ func checkUniqueness(t *testing.T, credits byAddress) {
 	}
 }
 
-func createScripts(t *testing.T, mgr *waddrmgr.Manager, pool *Pool, ranges []*addressRange) [][]byte {
-	var scripts [][]byte
-	for _, r := range ranges {
-		// create expNoAddrs number of scripts.
-		expNoAddrs := r.numAddresses()
-		newScripts := TstCreatePkScripts(t, pool, *r)
-		if uint64(len(newScripts)) != expNoAddrs {
-			t.Fatalf("Wrong number of scripts generated. Got: %d, want: %d",
-				len(scripts), expNoAddrs)
+func getPKScriptsForAddressRange(t *testing.T, pool *Pool, seriesID uint32, startBranch, stopBranch Branch, startIdx, stopIdx Index) [][]byte {
+	var pkScripts [][]byte
+	for idx := startIdx; idx <= stopIdx; idx++ {
+		for branch := startBranch; branch <= stopBranch; branch++ {
+			pkScripts = append(pkScripts, TstCreatePkScript(t, pool, seriesID, branch, idx))
 		}
-		scripts = append(scripts, newScripts...)
 	}
-	return scripts
+	return pkScripts
 }

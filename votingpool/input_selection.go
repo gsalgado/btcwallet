@@ -103,105 +103,63 @@ func (c byAddress) Less(i, j int) bool {
 	return false
 }
 
-// addressRange defines a range in the address space of the series.
-type addressRange struct {
-	SeriesID                uint32
-	StartBranch, StopBranch Branch
-	StartIndex, StopIndex   Index
-}
-
-func newAddressRange(
-	seriesID uint32, startBranch, stopBranch Branch, startIndex, stopIndex Index) (
-	*addressRange, error) {
-	if startBranch > stopBranch {
-		str := fmt.Sprintf("range not defined when startBranch (%d) > stopBranch (%d)",
-			startBranch, stopBranch)
-		return nil, newError(ErrInvalidAddressRange, str, nil)
-	}
-	if startIndex > stopIndex {
-		str := fmt.Sprintf("range not defined when startIndex (%d) > stopIndex (%d)",
-			startIndex, stopIndex)
-		return nil, newError(ErrInvalidAddressRange, str, nil)
-	}
-	return &addressRange{
-		SeriesID: seriesID, StartBranch: startBranch, StopBranch: stopBranch,
-		StartIndex: startIndex, StopIndex: stopIndex}, nil
-}
-
-// numAddresses returns the number of addresses this range represents.
-func (r addressRange) numAddresses() uint64 {
-	return uint64((r.StopBranch - r.StartBranch + 1)) * uint64((r.StopIndex - r.StartIndex + 1))
-}
-
-// getEligibleInputs returns all the eligible inputs from the
-// specified ranges.
-func (vp *Pool) getEligibleInputs(
+// getEligibleInputs returns eligible inputs with addresses between startAddress
+// and the last used address of lastSeriesID.
+func (p *Pool) getEligibleInputs(
 	store *txstore.Store,
-	ranges []*addressRange,
+	startAddress *WithdrawalAddress,
+	lastSeriesID uint32,
 	dustThreshold btcutil.Amount,
 	chainHeight int32,
 	minConf int,
 	limit btcutil.Amount) ([]CreditInterface, error) {
 
-	var inputs []CreditInterface
-	for _, r := range ranges {
-		credits, err := vp.getEligibleInputsFromSeries(
-			store, r, dustThreshold, chainHeight, minConf, limit)
-		if err != nil {
-			return nil, err
-		}
-
-		inputs = append(inputs, credits...)
+	if p.GetSeries(lastSeriesID) == nil {
+		str := fmt.Sprintf("lastSeriesID (%d) does not exist", lastSeriesID)
+		return nil, newError(ErrSeriesNotExists, str, nil)
 	}
-	return inputs, nil
-}
-
-// getEligibleInputsFromSeries returns a slice of eligible inputs for a series.
-func (vp *Pool) getEligibleInputsFromSeries(store *txstore.Store,
-	aRange *addressRange,
-	dustThreshold btcutil.Amount, chainHeight int32,
-	minConf int, limit btcutil.Amount) ([]CreditInterface, error) {
 	unspents, err := store.UnspentOutputs()
 	if err != nil {
 		return nil, newError(ErrInputSelection, "failed to get unspent outputs", err)
 	}
-
-	addrMap, err := groupCreditsByAddr(unspents, vp.manager.Net())
+	addrMap, err := groupCreditsByAddr(unspents, p.manager.Net())
 	if err != nil {
 		return nil, newError(ErrInputSelection, "grouping credits by address failed", err)
 	}
-	totalAmount := btcutil.Amount(0)
 	var inputs []CreditInterface
-	for index := aRange.StartIndex; index <= aRange.StopIndex; index++ {
-		for branch := aRange.StartBranch; branch <= aRange.StopBranch; branch++ {
-			addr, err := vp.WithdrawalAddress(aRange.SeriesID, branch, index)
-			if err != nil {
-				return nil, newError(ErrInputSelection, "failed to create deposit address", err)
-			}
-			encAddr := addr.Addr().EncodeAddress()
-
-			if candidates, ok := addrMap[encAddr]; ok {
-				var eligibles []CreditInterface
-				for _, c := range candidates {
-					if vp.isCreditEligible(c, minConf, chainHeight, dustThreshold) {
-						vpc := NewCredit(c, *addr)
-						eligibles = append(eligibles, vpc)
-						totalAmount += vpc.Amount()
-						if totalAmount >= limit {
-							break
-						}
+	finished := false
+	addr := startAddress
+	totalAmount := btcutil.Amount(0)
+	for !finished {
+		log.Debugf("Looking for eligible inputs at address %v", addr.AddrIdentifier())
+		if candidates, ok := addrMap[addr.Addr().EncodeAddress()]; ok {
+			var eligibles []CreditInterface
+			for _, c := range candidates {
+				if p.isCreditEligible(c, minConf, chainHeight, dustThreshold) {
+					eligibles = append(eligibles, NewCredit(c, *addr))
+					totalAmount += c.Amount()
+					if totalAmount >= limit {
+						log.Debugf("getEligibleInputs: reached amount limit (%d), stopping", limit)
+						finished = true
+						break
 					}
 				}
-				// Make sure the eligibles are correctly sorted.
-				sort.Sort(byAddress(eligibles))
-				inputs = append(inputs, eligibles...)
-				if totalAmount >= limit {
-					return inputs, nil
-				}
 			}
+			// Make sure the eligibles are correctly sorted.
+			sort.Sort(byAddress(eligibles))
+			inputs = append(inputs, eligibles...)
 		}
+		nextAddr, err := addr.NextBefore(lastSeriesID + 1)
+		if err != nil {
+			return nil, newError(
+				ErrInputSelection, "failed to get next withdrawal address", err)
+		} else if nextAddr == nil {
+			log.Debugf(
+				"getEligibleInputs: reached last addr (%s), stopping", addr.AddrIdentifier())
+			finished = true
+		}
+		addr = nextAddr
 	}
-
 	return inputs, nil
 }
 
