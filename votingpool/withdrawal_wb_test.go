@@ -130,8 +130,8 @@ func TestOutputSplittingOversizeTx(t *testing.T) {
 		t.Fatalf("Wrong number of output statuses; got %d, want 1", len(w.status.outputs))
 	}
 	status := w.status.outputs[request.outBailmentID()].status
-	if status != "success" {
-		t.Fatalf("Wrong output status; got '%s', want 'success'", status)
+	if status != outputRequestStatusSuccess {
+		t.Fatalf("Wrong output status; got '%s', want '%s'", status, outputRequestStatusSuccess)
 	}
 }
 
@@ -214,8 +214,9 @@ func TestFulfillRequestsNoSatisfiableOutputs(t *testing.T) {
 	}
 
 	status := w.status.outputs[request.outBailmentID()].status
-	if status != "partial-" {
-		t.Fatalf("Unexpected status for requested outputs; got '%s', want 'partial-'", status)
+	if status != outputRequestStatusPartial {
+		t.Fatalf("Unexpected status for requested outputs; got '%s', want '%s'",
+			status, outputRequestStatusPartial)
 	}
 }
 
@@ -262,8 +263,9 @@ func TestFulfillRequestsNotEnoughCreditsForAllRequests(t *testing.T) {
 	// withdrawal.status should state that outputs 1 and 2 were successfully fulfilled,
 	// and that output 3 was not.
 	expectedStatuses := map[string]string{
-		out1.outBailmentID(): "success", out2.outBailmentID(): "success",
-		out3.outBailmentID(): "partial-"}
+		out1.outBailmentID(): outputRequestStatusSuccess,
+		out2.outBailmentID(): outputRequestStatusSuccess,
+		out3.outBailmentID(): outputRequestStatusPartial}
 	for _, wOutput := range w.status.outputs {
 		if wOutput.status != expectedStatuses[wOutput.request.outBailmentID()] {
 			t.Fatalf("Unexpected status for %v; got '%s', want '%s'", wOutput.request,
@@ -1234,7 +1236,7 @@ func checkLastOutputWasSplit(t *testing.T, w *withdrawal, tx *withdrawalTx,
 	}
 
 	status := w.status.outputs[origRequest.outBailmentID()].status
-	if status != "partial-" {
-		t.Fatalf("Wrong output status; got '%s', want '%s'", status, "partial-")
+	if status != outputRequestStatusPartial {
+		t.Fatalf("Wrong output status; got '%s', want '%s'", status, outputRequestStatusPartial)
 	}
 }

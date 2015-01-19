@@ -64,6 +64,9 @@ const txMaxSize = 100000
 // added to transactions requiring a fee.
 const feeIncrement = 1e3
 
+const outputRequestStatusSuccess = "success"
+const outputRequestStatusPartial = "partial-"
+
 type WithdrawalStatus struct {
 	nextInputStart  WithdrawalAddress
 	nextChangeStart ChangeAddress
@@ -491,7 +494,7 @@ func (w *withdrawal) fulfillNextRequest() error {
 	output := w.status.outputs[request.outBailmentID()]
 	// We start with an output status of success and if anything goes wrong it
 	// will be changed.
-	output.status = "success"
+	output.status = outputRequestStatusSuccess
 	w.current.addOutput(request)
 
 	if w.current.isTooBig() {
@@ -587,7 +590,7 @@ func (w *withdrawal) finalizeCurrentTx() error {
 		for _, outpoint := range outputStatus.outpoints {
 			amtFulfilled += outpoint.amount
 		}
-		if outputStatus.status == "success" && amtFulfilled != origRequest.amount {
+		if outputStatus.status == outputRequestStatusSuccess && amtFulfilled != origRequest.amount {
 			msg := fmt.Sprintf(
 				"%s was not completely fulfilled; only %v fulfilled", origRequest, amtFulfilled)
 			return newError(ErrWithdrawalProcessing, msg, nil)
@@ -602,7 +605,7 @@ func (w *withdrawal) finalizeCurrentTx() error {
 // maybeDropRequests will check the total amount we have in eligible inputs and drop
 // requested outputs (in descending amount order) if we don't have enough to
 // fulfill them all. For every dropped output request we update its entry in
-// w.status.outputs with the status string set to "partial-".
+// w.status.outputs with the status string set to outputRequestStatusPartial.
 func (w *withdrawal) maybeDropRequests() {
 	inputAmount := btcutil.Amount(0)
 	for _, input := range w.eligibleInputs {
@@ -618,8 +621,7 @@ func (w *withdrawal) maybeDropRequests() {
 		log.Infof("Not fulfilling request to send %v to %v; not enough credits.",
 			request.amount, request.address)
 		outputAmount -= request.amount
-		// XXX: Do not hardcode the status strings here, nor in tests.
-		w.status.outputs[request.outBailmentID()].status = "partial-"
+		w.status.outputs[request.outBailmentID()].status = outputRequestStatusPartial
 	}
 }
 
@@ -685,7 +687,7 @@ func (w *withdrawal) splitLastOutput() error {
 	w.pushRequest(newRequest)
 	log.Debugf("Created a new pending output request with amount %v", newRequest.amount)
 
-	w.status.outputs[request.outBailmentID()].status = "partial-"
+	w.status.outputs[request.outBailmentID()].status = outputRequestStatusPartial
 	return nil
 }
 
