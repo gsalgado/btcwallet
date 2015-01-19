@@ -170,7 +170,7 @@ func createMasterKeys(t *testing.T, count int) []*hdkeychain.ExtendedKey {
 // TstCreateSeriesDef creates a TstSeriesDef with a unique SeriesID, the given
 // reqSigs and the raw public/private keys extracted from the list of private
 // keys. The new series will be empowered with all private keys.
-func TstCreateSeriesDef(t *testing.T, reqSigs uint32, keys []*hdkeychain.ExtendedKey) TstSeriesDef {
+func TstCreateSeriesDef(t *testing.T, pool *Pool, reqSigs uint32, keys []*hdkeychain.ExtendedKey) TstSeriesDef {
 	pubKeys := make([]string, len(keys))
 	privKeys := make([]string, len(keys))
 	for i, key := range keys {
@@ -178,8 +178,9 @@ func TstCreateSeriesDef(t *testing.T, reqSigs uint32, keys []*hdkeychain.Extende
 		pubkey, _ := key.Neuter()
 		pubKeys[i] = pubkey.String()
 	}
+	seriesID := uint32(len(pool.seriesLookup))
 	return TstSeriesDef{
-		ReqSigs: reqSigs, SeriesID: getUniqueID(), PubKeys: pubKeys, PrivKeys: privKeys}
+		ReqSigs: reqSigs, SeriesID: seriesID, PubKeys: pubKeys, PrivKeys: privKeys}
 }
 
 func TstCreatePoolAndTxStore(t *testing.T) (tearDown func(), pool *Pool, store *txstore.Store) {
@@ -203,7 +204,7 @@ func TstCreateCredits(
 		TstCreateMasterKey(t, bytes.Repeat(uint32ToBytes(getUniqueID()), 4)),
 		TstCreateMasterKey(t, bytes.Repeat(uint32ToBytes(getUniqueID()), 4)),
 	}
-	def := TstCreateSeriesDef(t, 2, masters)
+	def := TstCreateSeriesDef(t, pool, 2, masters)
 	TstCreateSeries(t, pool, []TstSeriesDef{def})
 	return def.SeriesID, TstCreateCreditsOnSeries(t, pool, def.SeriesID, amounts, store)
 }

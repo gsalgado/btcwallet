@@ -272,7 +272,7 @@ func TestCreateSeries(t *testing.T) {
 	}
 }
 
-func TestCreateSeriesWhenAlreadyExists(t *testing.T) {
+func TestPoolCreateSeriesWhenAlreadyExists(t *testing.T) {
 	tearDown, _, pool := vp.TstCreatePool(t)
 	defer tearDown()
 	pubKeys := vp.TstPubKeys[0:3]
@@ -283,6 +283,20 @@ func TestCreateSeriesWhenAlreadyExists(t *testing.T) {
 	err := pool.CreateSeries(1, 0, 1, pubKeys)
 
 	vp.TstCheckError(t, "", err, vp.ErrSeriesAlreadyExists)
+}
+
+func TestPoolCreateSeriesIDNotSequential(t *testing.T) {
+	tearDown, _, pool := vp.TstCreatePool(t)
+	defer tearDown()
+
+	pubKeys := vp.TstPubKeys[0:4]
+	if err := pool.CreateSeries(1, 0, 2, pubKeys); err != nil {
+		t.Fatalf("Cannot create series: %v", err)
+	}
+
+	err := pool.CreateSeries(1, 2, 2, pubKeys)
+
+	vp.TstCheckError(t, "", err, vp.ErrSeriesIDNotSequential)
 }
 
 func TestPutSeriesErrors(t *testing.T) {
@@ -455,7 +469,7 @@ func TestCannotReplaceEmpoweredSeries(t *testing.T) {
 	tearDown, manager, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
-	var seriesID uint32 = 1
+	var seriesID uint32 = 0
 
 	if err := pool.CreateSeries(1, seriesID, 3, vp.TstPubKeys[0:4]); err != nil {
 		t.Fatalf("Failed to create series", err)
@@ -511,13 +525,13 @@ var replaceSeriesTestData = []replaceSeriesTestEntry{
 	{
 		testID: 1,
 		orig: seriesRaw{
-			id:      2,
+			id:      1,
 			version: 1,
 			reqSigs: 2,
 			pubKeys: vp.CanonicalKeyOrder(vp.TstPubKeys[0:3]),
 		},
 		replaceWith: seriesRaw{
-			id:      2,
+			id:      1,
 			version: 1,
 			reqSigs: 2,
 			pubKeys: vp.CanonicalKeyOrder(vp.TstPubKeys[3:7]),
@@ -526,13 +540,13 @@ var replaceSeriesTestData = []replaceSeriesTestEntry{
 	{
 		testID: 2,
 		orig: seriesRaw{
-			id:      4,
+			id:      2,
 			version: 1,
 			reqSigs: 8,
 			pubKeys: vp.CanonicalKeyOrder(vp.TstPubKeys[0:9]),
 		},
 		replaceWith: seriesRaw{
-			id:      4,
+			id:      2,
 			version: 1,
 			reqSigs: 7,
 			pubKeys: vp.CanonicalKeyOrder(vp.TstPubKeys[0:8]),

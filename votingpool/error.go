@@ -132,6 +132,10 @@ const (
 	// missing.
 	ErrTxOutNotFound
 
+	// ErrSeriesIDNotSequential indicates an attempt to create a series with an
+	// ID that is not sequantial.
+	ErrSeriesIDNotSequential
+
 	// lastErr is used for testing, making it possible to iterate over
 	// the error codes in order to check that they all have proper
 	// translations in errorCodeStrings.
@@ -170,6 +174,7 @@ var errorCodeStrings = map[ErrorCode]string{
 	ErrPreconditionNotMet:      "ErrPreconditionNotMet",
 	ErrTxSigning:               "ErrTxSigning",
 	ErrTxOutNotFound:           "ErrTxOutNotFound",
+	ErrSeriesIDNotSequential:   "ErrSeriesIDNotSequential",
 }
 
 // String returns the ErrorCode as a human-readable name.

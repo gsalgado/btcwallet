@@ -313,11 +313,18 @@ func (vp *Pool) putSeries(version, seriesID, reqSigs uint32, inRawPubKeys []stri
 //
 // - rawPubKeys has to contain three or more public keys;
 // - reqSigs has to be less or equal than the number of public keys in rawPubKeys.
-// TODO: Return an error if the given seriesID is not equal to lastSeriesID+1
 func (vp *Pool) CreateSeries(version, seriesID, reqSigs uint32, rawPubKeys []string) error {
 	if series := vp.GetSeries(seriesID); series != nil {
 		str := fmt.Sprintf("series #%d already exists", seriesID)
 		return newError(ErrSeriesAlreadyExists, str, nil)
+	}
+
+	if seriesID != 0 {
+		if _, ok := vp.seriesLookup[seriesID-1]; !ok {
+			str := fmt.Sprintf("series #%d cannot be created because series #%d does not exist",
+				seriesID, seriesID-1)
+			return newError(ErrSeriesIDNotSequential, str, nil)
+		}
 	}
 
 	return vp.putSeries(version, seriesID, reqSigs, rawPubKeys)
@@ -626,7 +633,8 @@ type ChangeAddress struct {
 }
 
 func (a *ChangeAddress) Next() (*ChangeAddress, error) {
-	// TODO: Check that a.index+1 fits in a uint32 before calling ChangeAddress.
+	// TODO: When we reach the last index, move on to the next active series and
+	// start again from index=0.
 	return a.pool.ChangeAddress(a.seriesID, a.index+1)
 }
 

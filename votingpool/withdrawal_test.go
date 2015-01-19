@@ -35,7 +35,7 @@ func TestWithdrawal(t *testing.T) {
 		vp.TstCreateMasterKey(t, bytes.Repeat([]byte{0x00, 0x01}, 16)),
 		vp.TstCreateMasterKey(t, bytes.Repeat([]byte{0x02, 0x01}, 16)),
 		vp.TstCreateMasterKey(t, bytes.Repeat([]byte{0x03, 0x01}, 16))}
-	def := vp.TstCreateSeriesDef(t, 2, masters)
+	def := vp.TstCreateSeriesDef(t, pool, 2, masters)
 	vp.TstCreateSeries(t, pool, []vp.TstSeriesDef{def})
 	// Create eligible inputs and the list of outputs we need to fulfil.
 	eligible := vp.TstCreateCreditsOnSeries(t, pool, def.SeriesID, []int64{5e6, 4e6}, store)

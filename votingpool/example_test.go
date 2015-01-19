@@ -83,7 +83,7 @@ func Example_basic() {
 	}
 
 	// Create a 2-of-3 series.
-	seriesID := uint32(1)
+	seriesID := uint32(0)
 	requiredSignatures := uint32(2)
 	pubKeys := []string{
 		"xpub661MyMwAqRbcFDDrR5jY7LqsRioFDwg3cLjc7tML3RRcfYyhXqqgCH5SqMSQdpQ1Xh8EtVwcfm8psD8zXKPcRaCVSY4GCqbb3aMEs27GitE",
