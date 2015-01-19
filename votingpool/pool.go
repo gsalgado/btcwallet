@@ -553,11 +553,14 @@ func (vp *Pool) DepositScript(seriesID uint32, branch Branch, index Index) ([]by
 }
 
 func (vp *Pool) ChangeAddress(seriesID uint32, index Index) (*ChangeAddress, error) {
-	// TODO: Ensure the given series is active.
 	// Branch is always 0 for change addresses.
 	vpAddr, err := vp.newVotingPoolAddress(seriesID, Branch(0), index)
 	if err != nil {
 		return nil, err
+	}
+	if !vpAddr.Series().active {
+		str := fmt.Sprintf("ChangeAddress must be on active series; series #%d is not", seriesID)
+		return nil, newError(ErrSeriesNotActive, str, nil)
 	}
 	return &ChangeAddress{votingPoolAddress: vpAddr}, nil
 }
@@ -626,6 +629,17 @@ func (a *votingPoolAddress) Branch() Branch {
 
 func (a *votingPoolAddress) Index() Index {
 	return a.index
+}
+
+type PoolAddress interface {
+	fmt.Stringer
+	Addr() btcutil.Address
+	AddrIdentifier() string
+	RedeemScript() []byte
+	Series() *SeriesData
+	SeriesID() uint32
+	Branch() Branch
+	Index() Index
 }
 
 type ChangeAddress struct {

@@ -29,7 +29,6 @@ func TestErrorCodeStringer(t *testing.T) {
 		want string
 	}{
 		{ErrInputSelection, "ErrInputSelection"},
-		{ErrInvalidAddressRange, "ErrInvalidAddressRange"},
 		{ErrWithdrawalProcessing, "ErrWithdrawalProcessing"},
 		{ErrUnknownPubKey, "ErrUnknownPubKey"},
 		{ErrSeriesStorage, "ErrSeriesStorage"},
@@ -37,6 +36,8 @@ func TestErrorCodeStringer(t *testing.T) {
 		{ErrSeriesNotExists, "ErrSeriesNotExists"},
 		{ErrSeriesAlreadyExists, "ErrSeriesAlreadyExists"},
 		{ErrSeriesAlreadyEmpowered, "ErrSeriesAlreadyEmpowered"},
+		{ErrSeriesIDNotSequential, "ErrSeriesIDNotSequential"},
+		{ErrSeriesNotActive, "ErrSeriesNotActive"},
 		{ErrKeyIsPrivate, "ErrKeyIsPrivate"},
 		{ErrKeyIsPublic, "ErrKeyIsPublic"},
 		{ErrKeyNeuter, "ErrKeyNeuter"},
@@ -57,7 +58,6 @@ func TestErrorCodeStringer(t *testing.T) {
 		{ErrPreconditionNotMet, "ErrPreconditionNotMet"},
 		{ErrTxSigning, "ErrTxSigning"},
 		{ErrTxOutNotFound, "ErrTxOutNotFound"},
-		{ErrSeriesIDNotSequential, "ErrSeriesIDNotSequential"},
 	}
 
 	if int(lastErr) != len(tests) {

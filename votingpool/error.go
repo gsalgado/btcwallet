@@ -26,9 +26,6 @@ const (
 	// algorithm.
 	ErrInputSelection ErrorCode = iota
 
-	// ErrInvalidAddressRange indicates an invalid address range.
-	ErrInvalidAddressRange
-
 	// ErrWithdrawalProcessing indicates an internal error when processing a withdrawal
 	// request.
 	ErrWithdrawalProcessing
@@ -55,6 +52,10 @@ const (
 	// ErrSeriesAlreadyEmpowered indicates that an already empowered series
 	// was used where a not empowered one was expected.
 	ErrSeriesAlreadyEmpowered
+
+	// ErrSeriesNotActive indicates that an active series was needed but the
+	// selected one is not.
+	ErrSeriesNotActive
 
 	// ErrKeyIsPrivate indicates that a private key was used where a public
 	// one was expected.
@@ -145,7 +146,6 @@ const (
 // Map of ErrorCode values back to their constant names for pretty printing.
 var errorCodeStrings = map[ErrorCode]string{
 	ErrInputSelection:            "ErrInputSelection",
-	ErrInvalidAddressRange:       "ErrInvalidAddressRange",
 	ErrWithdrawalProcessing:      "ErrWithdrawalProcessing",
 	ErrUnknownPubKey:             "ErrUnknownPubKey",
 	ErrSeriesStorage:             "ErrSeriesStorage",
@@ -153,6 +153,8 @@ var errorCodeStrings = map[ErrorCode]string{
 	ErrSeriesNotExists:           "ErrSeriesNotExists",
 	ErrSeriesAlreadyExists:       "ErrSeriesAlreadyExists",
 	ErrSeriesAlreadyEmpowered:    "ErrSeriesAlreadyEmpowered",
+	ErrSeriesIDNotSequential:     "ErrSeriesIDNotSequential",
+	ErrSeriesNotActive:           "ErrSeriesNotActive",
 	ErrKeyIsPrivate:              "ErrKeyIsPrivate",
 	ErrKeyIsPublic:               "ErrKeyIsPublic",
 	ErrKeyNeuter:                 "ErrKeyNeuter",
@@ -173,7 +175,6 @@ var errorCodeStrings = map[ErrorCode]string{
 	ErrPreconditionNotMet:        "ErrPreconditionNotMet",
 	ErrTxSigning:                 "ErrTxSigning",
 	ErrTxOutNotFound:             "ErrTxOutNotFound",
-	ErrSeriesIDNotSequential:     "ErrSeriesIDNotSequential",
 }
 
 // String returns the ErrorCode as a human-readable name.

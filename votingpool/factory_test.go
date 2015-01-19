@@ -127,6 +127,7 @@ type TstSeriesDef struct {
 	PubKeys  []string
 	PrivKeys []string
 	SeriesID uint32
+	Inactive bool
 }
 
 // TstCreateSeries creates a new Series for every definition in the given slice
@@ -147,6 +148,7 @@ func TstCreateSeries(t *testing.T, pool *Pool, definitions []TstSeriesDef) {
 				t.Fatal(err)
 			}
 		}
+		pool.GetSeries(def.SeriesID).active = !def.Inactive
 	}
 }
 
