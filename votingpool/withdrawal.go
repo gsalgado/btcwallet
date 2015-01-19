@@ -64,8 +64,9 @@ const txMaxSize = 100000
 // added to transactions requiring a fee.
 const feeIncrement = 1e3
 
-const outputRequestStatusSuccess = "success"
-const outputRequestStatusPartial = "partial-"
+const withdrawalOutputStatusSuccess = "success"
+const withdrawalOutputStatusPartial = "partial-"
+const withdrawalOutputStatusSplit = "split"
 
 type WithdrawalStatus struct {
 	nextInputStart  WithdrawalAddress
@@ -492,9 +493,9 @@ func (w *withdrawal) pushInput(input CreditInterface) {
 func (w *withdrawal) fulfillNextRequest() error {
 	request := w.popRequest()
 	output := w.status.outputs[request.outBailmentID()]
-	// We start with an output status of success and if anything goes wrong it
-	// will be changed.
-	output.status = outputRequestStatusSuccess
+	// We start with an output status of success and let the methods that deal
+	// with special cases change it when appropriate.
+	output.status = withdrawalOutputStatusSuccess
 	w.current.addOutput(request)
 
 	if w.current.isTooBig() {
@@ -590,7 +591,7 @@ func (w *withdrawal) finalizeCurrentTx() error {
 		for _, outpoint := range outputStatus.outpoints {
 			amtFulfilled += outpoint.amount
 		}
-		if outputStatus.status == outputRequestStatusSuccess && amtFulfilled != origRequest.amount {
+		if outputStatus.status == withdrawalOutputStatusSuccess && amtFulfilled != origRequest.amount {
 			msg := fmt.Sprintf(
 				"%s was not completely fulfilled; only %v fulfilled", origRequest, amtFulfilled)
 			return newError(ErrWithdrawalProcessing, msg, nil)
@@ -605,7 +606,7 @@ func (w *withdrawal) finalizeCurrentTx() error {
 // maybeDropRequests will check the total amount we have in eligible inputs and drop
 // requested outputs (in descending amount order) if we don't have enough to
 // fulfill them all. For every dropped output request we update its entry in
-// w.status.outputs with the status string set to outputRequestStatusPartial.
+// w.status.outputs with the status string set to withdrawalOutputStatusPartial.
 func (w *withdrawal) maybeDropRequests() {
 	inputAmount := btcutil.Amount(0)
 	for _, input := range w.eligibleInputs {
@@ -621,7 +622,7 @@ func (w *withdrawal) maybeDropRequests() {
 		log.Infof("Not fulfilling request to send %v to %v; not enough credits.",
 			request.amount, request.address)
 		outputAmount -= request.amount
-		w.status.outputs[request.outBailmentID()].status = outputRequestStatusPartial
+		w.status.outputs[request.outBailmentID()].status = withdrawalOutputStatusPartial
 	}
 }
 
@@ -687,12 +688,19 @@ func (w *withdrawal) splitLastOutput() error {
 	w.pushRequest(newRequest)
 	log.Debugf("Created a new pending output request with amount %v", newRequest.amount)
 
-	w.status.outputs[request.outBailmentID()].status = outputRequestStatusPartial
+	w.status.outputs[request.outBailmentID()].status = withdrawalOutputStatusPartial
 	return nil
 }
 
 func (w *withdrawal) updateStatusFor(tx *withdrawalTx) {
-	// TODO
+	for _, output := range w.status.outputs {
+		if len(output.outpoints) > 1 {
+			output.status = withdrawalOutputStatusSplit
+		}
+		// TODO: Update outputs with status=='partial-'. For this we need an API
+		// that gives us the amount of credits in a given series.
+		// http://opentransactions.org/wiki/index.php/Update_Status
+	}
 }
 
 // Ntxid returns a unique ID for the given transaction.

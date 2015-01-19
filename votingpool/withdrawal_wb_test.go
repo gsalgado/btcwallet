@@ -130,8 +130,8 @@ func TestOutputSplittingOversizeTx(t *testing.T) {
 		t.Fatalf("Wrong number of output statuses; got %d, want 1", len(w.status.outputs))
 	}
 	status := w.status.outputs[request.outBailmentID()].status
-	if status != outputRequestStatusSuccess {
-		t.Fatalf("Wrong output status; got '%s', want '%s'", status, outputRequestStatusSuccess)
+	if status != withdrawalOutputStatusSplit {
+		t.Fatalf("Wrong output status; got '%s', want '%s'", status, withdrawalOutputStatusSplit)
 	}
 }
 
@@ -214,9 +214,9 @@ func TestFulfillRequestsNoSatisfiableOutputs(t *testing.T) {
 	}
 
 	status := w.status.outputs[request.outBailmentID()].status
-	if status != outputRequestStatusPartial {
+	if status != withdrawalOutputStatusPartial {
 		t.Fatalf("Unexpected status for requested outputs; got '%s', want '%s'",
-			status, outputRequestStatusPartial)
+			status, withdrawalOutputStatusPartial)
 	}
 }
 
@@ -263,9 +263,9 @@ func TestFulfillRequestsNotEnoughCreditsForAllRequests(t *testing.T) {
 	// withdrawal.status should state that outputs 1 and 2 were successfully fulfilled,
 	// and that output 3 was not.
 	expectedStatuses := map[string]string{
-		out1.outBailmentID(): outputRequestStatusSuccess,
-		out2.outBailmentID(): outputRequestStatusSuccess,
-		out3.outBailmentID(): outputRequestStatusPartial}
+		out1.outBailmentID(): withdrawalOutputStatusSuccess,
+		out2.outBailmentID(): withdrawalOutputStatusSuccess,
+		out3.outBailmentID(): withdrawalOutputStatusPartial}
 	for _, wOutput := range w.status.outputs {
 		if wOutput.status != expectedStatuses[wOutput.request.outBailmentID()] {
 			t.Fatalf("Unexpected status for %v; got '%s', want '%s'", wOutput.request,
@@ -1236,7 +1236,7 @@ func checkLastOutputWasSplit(t *testing.T, w *withdrawal, tx *withdrawalTx,
 	}
 
 	status := w.status.outputs[origRequest.outBailmentID()].status
-	if status != outputRequestStatusPartial {
-		t.Fatalf("Wrong output status; got '%s', want '%s'", status, outputRequestStatusPartial)
+	if status != withdrawalOutputStatusPartial {
+		t.Fatalf("Wrong output status; got '%s', want '%s'", status, withdrawalOutputStatusPartial)
 	}
 }
