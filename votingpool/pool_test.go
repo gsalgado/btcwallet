@@ -218,7 +218,7 @@ func TestCreateVotingPoolWhenAlreadyExists(t *testing.T) {
 
 	_, err := vp.Create(pool.TstNamespace(), mgr, pool.ID)
 
-	vp.TstCheckError(t, "", err, vp.ErrVotingPoolAlreadyExists)
+	vp.TstCheckError(t, "", err, vp.ErrPoolAlreadyExists)
 }
 
 func TestCreateSeries(t *testing.T) {

@@ -81,13 +81,13 @@ const (
 	// keys was not met.
 	ErrTooFewPublicKeys
 
-	// ErrVotingPoolAlreadyExists indicates that an attempt has been made to
+	// ErrPoolAlreadyExists indicates that an attempt has been made to
 	// create a voting pool that already exists.
-	ErrVotingPoolAlreadyExists
+	ErrPoolAlreadyExists
 
-	// ErrVotingPoolNotExists indicates that an attempt has been made to access
+	// ErrPoolNotExists indicates that an attempt has been made to access
 	// a voting pool that does not exist.
-	ErrVotingPoolNotExists
+	ErrPoolNotExists
 
 	// ErrScriptCreation indicates that the creation of a deposit script failed.
 	ErrScriptCreation
@@ -160,21 +160,20 @@ var errorCodeStrings = map[ErrorCode]string{
 	ErrKeysPrivatePublicMismatch: "ErrKeysPrivatePublicMismatch",
 	ErrKeyDuplicate:              "ErrKeyDuplicate",
 	ErrTooFewPublicKeys:          "ErrTooFewPublicKeys",
-	// XXX: Rename those two errors to get rid of the Voting infix.
-	ErrVotingPoolAlreadyExists: "ErrVotingPoolAlreadyExists",
-	ErrVotingPoolNotExists:     "ErrVotingPoolNotExists",
-	ErrScriptCreation:          "ErrScriptCreation",
-	ErrTooManyReqSignatures:    "ErrTooManyReqSignatures",
-	ErrInvalidBranch:           "ErrInvalidBranch",
-	ErrInvalidValue:            "ErrInvalidValue",
-	ErrDatabase:                "ErrDatabase",
-	ErrKeyChain:                "ErrKeyChain",
-	ErrCrypto:                  "ErrCrypto",
-	ErrRawSigning:              "ErrRawSigning",
-	ErrPreconditionNotMet:      "ErrPreconditionNotMet",
-	ErrTxSigning:               "ErrTxSigning",
-	ErrTxOutNotFound:           "ErrTxOutNotFound",
-	ErrSeriesIDNotSequential:   "ErrSeriesIDNotSequential",
+	ErrPoolAlreadyExists:         "ErrPoolAlreadyExists",
+	ErrPoolNotExists:             "ErrPoolNotExists",
+	ErrScriptCreation:            "ErrScriptCreation",
+	ErrTooManyReqSignatures:      "ErrTooManyReqSignatures",
+	ErrInvalidBranch:             "ErrInvalidBranch",
+	ErrInvalidValue:              "ErrInvalidValue",
+	ErrDatabase:                  "ErrDatabase",
+	ErrKeyChain:                  "ErrKeyChain",
+	ErrCrypto:                    "ErrCrypto",
+	ErrRawSigning:                "ErrRawSigning",
+	ErrPreconditionNotMet:        "ErrPreconditionNotMet",
+	ErrTxSigning:                 "ErrTxSigning",
+	ErrTxOutNotFound:             "ErrTxOutNotFound",
+	ErrSeriesIDNotSequential:     "ErrSeriesIDNotSequential",
 }
 
 // String returns the ErrorCode as a human-readable name.

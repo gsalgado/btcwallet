@@ -78,7 +78,7 @@ func Create(namespace walletdb.Namespace, m *waddrmgr.Manager, poolID []byte) (*
 		})
 	if err != nil {
 		str := fmt.Sprintf("unable to add voting pool %v to db", poolID)
-		return nil, newError(ErrVotingPoolAlreadyExists, str, err)
+		return nil, newError(ErrPoolAlreadyExists, str, err)
 	}
 	return newPool(namespace, m, poolID), nil
 }
@@ -90,7 +90,7 @@ func Load(namespace walletdb.Namespace, m *waddrmgr.Manager, poolID []byte) (*Po
 		func(tx walletdb.Tx) error {
 			if exists := existsPool(tx, poolID); !exists {
 				str := fmt.Sprintf("unable to find voting pool %v in db", poolID)
-				return newError(ErrVotingPoolNotExists, str, nil)
+				return newError(ErrPoolNotExists, str, nil)
 			}
 			return nil
 		})
@@ -138,7 +138,7 @@ func LoadAndCreateSeries(namespace walletdb.Namespace, m *waddrmgr.Manager, vers
 	vp, err := Load(namespace, m, pid)
 	if err != nil {
 		vpErr := err.(Error)
-		if vpErr.ErrorCode == ErrVotingPoolNotExists {
+		if vpErr.ErrorCode == ErrPoolNotExists {
 			vp, err = Create(namespace, m, pid)
 			if err != nil {
 				return err
