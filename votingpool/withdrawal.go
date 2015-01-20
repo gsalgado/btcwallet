@@ -394,13 +394,35 @@ func newWithdrawal(roundID uint32, requests []OutputRequest, inputs []CreditInte
 	}
 }
 
+func (p *Pool) StartWithdrawal(
+	roundID uint32, requests []OutputRequest, startAddress *WithdrawalAddress,
+	lastSeriesID uint32, changeStart *ChangeAddress, txStore *txstore.Store, chainHeight int32,
+	dustThreshold btcutil.Amount) (*WithdrawalStatus, map[string]TxSigs, error) {
+
+	// For now we are conservative and limit the amount of eligible inputs to
+	// 1.5 times the total amount of requests, but since fees should be several
+	// orders of magnitude less than that, we could possibly use a much smaller
+	// factor.
+	requestsAmt := btcutil.Amount(0)
+	for _, request := range requests {
+		requestsAmt += request.amount
+	}
+	limit := requestsAmt + (requestsAmt / 2)
+
+	eligible, err := p.getEligibleInputs(
+		txStore, startAddress, lastSeriesID, dustThreshold, chainHeight,
+		eligibleInputMinConfirmations, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return p.Withdrawal(roundID, requests, eligible, changeStart, txStore)
+}
+
 func (vp *Pool) Withdrawal(
-	roundID uint32,
-	requests []OutputRequest,
-	inputs []CreditInterface,
-	changeStart *ChangeAddress,
-	txStore *txstore.Store,
-) (*WithdrawalStatus, map[string]TxSigs, error) {
+	roundID uint32, requests []OutputRequest, inputs []CreditInterface, changeStart *ChangeAddress,
+	txStore *txstore.Store) (*WithdrawalStatus, map[string]TxSigs, error) {
+
 	w := newWithdrawal(roundID, requests, inputs, changeStart)
 	if err := w.fulfillRequests(); err != nil {
 		return nil, nil, err

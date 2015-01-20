@@ -27,6 +27,8 @@ import (
 	"github.com/btcsuite/btcwire"
 )
 
+const eligibleInputMinConfirmations = 100
+
 // CreditInterface is an abstraction over credits used in a voting
 // pool.
 type CreditInterface interface {

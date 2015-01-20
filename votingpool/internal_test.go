@@ -22,6 +22,8 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 )
 
+const TstEligibleInputMinConfirmations = eligibleInputMinConfirmations
+
 // TstPutSeries transparently wraps the voting pool putSeries method.
 func (vp *Pool) TstPutSeries(version, seriesID, reqSigs uint32, inRawPubKeys []string) error {
 	return vp.putSeries(version, seriesID, reqSigs, inRawPubKeys)

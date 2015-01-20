@@ -27,8 +27,6 @@ import (
 )
 
 var (
-	minConf = 100
-
 	// random small number of satoshis used as dustThreshold
 	dustThreshold btcutil.Amount = 1e4
 )
@@ -46,25 +44,24 @@ func TestGetEligibleInputs(t *testing.T) {
 		getPKScriptsForAddressRange(t, pool, 0, 0, 2, 0, 4),
 		getPKScriptsForAddressRange(t, pool, 1, 0, 2, 0, 6)...)
 
-	oldChainHeight := 11112
-	chainHeight := oldChainHeight + minConf + 10
-
-	// Create two eligible inputs at each address.
+	// Create two eligible inputs locked to each of the PKScripts above.
 	expNoEligibleInputs := 2 * len(scripts)
 	eligibleAmounts := []int64{int64(dustThreshold + 1), int64(dustThreshold + 1)}
 	var inputs []txstore.Credit
 	for i := 0; i < len(scripts); i++ {
-		blockIndex := int(i) + 1
-		created := TstCreateInputsOnBlock(t, store, blockIndex, oldChainHeight,
-			scripts[i], eligibleAmounts)
+		txIndex := int(i) + 1
+		created := TstCreateInputsOnBlock(
+			t, store, txIndex, scripts[i], eligibleAmounts)
 		inputs = append(inputs, created...)
 	}
 
 	totalAmount := btcutil.Amount(len(inputs)) * inputs[0].Amount()
 	startAddr := TstNewWithdrawalAddress(t, pool, 0, 0, 0)
 	lastSeriesID := uint32(1)
+	currentBlock := int32(TstInputsBlock + eligibleInputMinConfirmations + 1)
 	eligibles, err := pool.getEligibleInputs(
-		store, startAddr, lastSeriesID, dustThreshold, int32(chainHeight), minConf, totalAmount)
+		store, startAddr, lastSeriesID, dustThreshold, int32(currentBlock),
+		eligibleInputMinConfirmations, totalAmount)
 	if err != nil {
 		t.Fatal("InputSelection failed:", err)
 	}
@@ -92,14 +89,12 @@ func TestGetEligibleInputsAmountLimit(t *testing.T) {
 	TstCreateSeries(
 		t, pool, []TstSeriesDef{{ReqSigs: 2, PubKeys: TstPubKeys[1:4], SeriesID: seriesID}})
 	scripts := getPKScriptsForAddressRange(t, pool, seriesID, 0, 3, 0, 4)
-	// Create one eligible input at each address.
-	oldChainHeight := 11112
-	chainHeight := oldChainHeight + minConf + 10
+	// Create one eligible input locked to each of the PKScripts above.
 	var inputs []txstore.Credit
 	for i := 0; i < len(scripts); i++ {
 		blockIndex := int(i) + 1
-		created := TstCreateInputsOnBlock(t, store, blockIndex, oldChainHeight,
-			scripts[i], []int64{int64(dustThreshold + 1)})
+		created := TstCreateInputsOnBlock(
+			t, store, blockIndex, scripts[i], []int64{int64(dustThreshold + 1)})
 		inputs = append(inputs, created...)
 	}
 
@@ -108,8 +103,10 @@ func TestGetEligibleInputsAmountLimit(t *testing.T) {
 	amountTotal := btcutil.Amount(len(inputs)) * (dustThreshold + 1)
 	startAddr := TstNewWithdrawalAddress(t, pool, seriesID, 0, 0)
 	lastSeriesID := uint32(0)
+	currentBlock := int32(TstInputsBlock + eligibleInputMinConfirmations + 1)
 	eligibles, err := pool.getEligibleInputs(
-		store, startAddr, lastSeriesID, dustThreshold, int32(chainHeight), minConf, amountTotal/2)
+		store, startAddr, lastSeriesID, dustThreshold, int32(currentBlock),
+		eligibleInputMinConfirmations, amountTotal/2)
 	if err != nil {
 		t.Fatal("InputSelection failed:", err)
 	}
@@ -140,9 +137,9 @@ func TestEligibleInputsAreEligible(t *testing.T) {
 	c := TstCreateInputs(t, store, pkScript, []int64{int64(dustThreshold)})[0]
 
 	// Make sure credits is old enough to pass the minConf check.
-	c.BlockHeight = int32(100)
+	c.BlockHeight = int32(eligibleInputMinConfirmations)
 
-	if !pool.isCreditEligible(c, minConf, chainHeight, dustThreshold) {
+	if !pool.isCreditEligible(c, eligibleInputMinConfirmations, chainHeight, dustThreshold) {
 		t.Errorf("Input is not eligible and it should be.")
 	}
 }
@@ -166,7 +163,7 @@ func TestNonEligibleInputsAreNotEligible(t *testing.T) {
 	// Check that credit below dustThreshold is rejected.
 	c1 := TstCreateInputs(t, store1, pkScript, []int64{int64(dustThreshold - 1)})[0]
 	c1.BlockHeight = int32(100) // make sure it has enough confirmations.
-	if pool.isCreditEligible(c1, minConf, chainHeight, dustThreshold) {
+	if pool.isCreditEligible(c1, eligibleInputMinConfirmations, chainHeight, dustThreshold) {
 		t.Errorf("Input is eligible and it should not be.")
 	}
 
@@ -177,7 +174,7 @@ func TestNonEligibleInputsAreNotEligible(t *testing.T) {
 	// reason why I need to put 902 as *that* makes 1000 - 902 +1 = 99 >=
 	// 100 false
 	c2.BlockHeight = int32(902)
-	if pool.isCreditEligible(c2, minConf, chainHeight, dustThreshold) {
+	if pool.isCreditEligible(c2, eligibleInputMinConfirmations, chainHeight, dustThreshold) {
 		t.Errorf("Input is eligible and it should not be.")
 	}
 

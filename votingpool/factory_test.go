@@ -42,6 +42,8 @@ var (
 	pubPassphrase  = []byte("_DJr{fL4H0O}*-0\n:V1izc)(6BomK")
 	privPassphrase = []byte("81lUHXnOMZ@?XXd7O9xyDIWIbXX-lj")
 	uniqueCounter  = uint32(0)
+	// The block height where all our test inputs are created.
+	TstInputsBlock = int32(10)
 )
 
 func getUniqueID() uint32 {
@@ -232,9 +234,7 @@ func TstCreateCreditsOnSeries(t *testing.T, pool *Pool, seriesID uint32, amounts
 // TstCreateInputs is a convenience function.  See TstCreateInputsOnBlock
 // for a more flexible version.
 func TstCreateInputs(t *testing.T, store *txstore.Store, pkScript []byte, amounts []int64) []txstore.Credit {
-	blockTxIndex := 1 // XXX: hardcoded value.
-	blockHeight := 10 // XXX: hardcoded value.
-	return TstCreateInputsOnBlock(t, store, blockTxIndex, blockHeight, pkScript, amounts)
+	return TstCreateInputsOnBlock(t, store, 1, pkScript, amounts)
 }
 
 // TstCreateInputsOnBlock creates a number of inputs by creating a transaction
@@ -243,10 +243,10 @@ func TstCreateInputs(t *testing.T, store *txstore.Store, pkScript []byte, amount
 // The transaction is added to a block and the index and blockheight must be
 // specified.
 func TstCreateInputsOnBlock(t *testing.T, s *txstore.Store,
-	blockTxIndex, blockHeight int, pkScript []byte, amounts []int64) []txstore.Credit {
+	blockTxIndex int, pkScript []byte, amounts []int64) []txstore.Credit {
 	msgTx := createMsgTx(pkScript, amounts)
 	block := &txstore.Block{
-		Height: int32(blockHeight),
+		Height: TstInputsBlock,
 	}
 
 	tx := btcutil.NewTx(msgTx)

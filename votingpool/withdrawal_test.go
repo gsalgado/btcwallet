@@ -26,7 +26,7 @@ import (
 	"github.com/btcsuite/btcwire"
 )
 
-func TestWithdrawal(t *testing.T) {
+func TestStartWithdrawal(t *testing.T) {
 	tearDown, pool, store := vp.TstCreatePoolAndTxStore(t)
 	defer tearDown()
 	mgr := pool.Manager()
@@ -38,7 +38,7 @@ func TestWithdrawal(t *testing.T) {
 	def := vp.TstCreateSeriesDef(t, pool, 2, masters)
 	vp.TstCreateSeries(t, pool, []vp.TstSeriesDef{def})
 	// Create eligible inputs and the list of outputs we need to fulfil.
-	eligible := vp.TstCreateCreditsOnSeries(t, pool, def.SeriesID, []int64{5e6, 4e6}, store)
+	vp.TstCreateCreditsOnSeries(t, pool, def.SeriesID, []int64{5e6, 4e6}, store)
 	address1 := "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6"
 	address2 := "3PbExiaztsSYgh6zeMswC49hLUwhTQ86XG"
 	requests := []vp.OutputRequest{
@@ -50,8 +50,12 @@ func TestWithdrawal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Withdrawal() should fulfil the desired outputs spending from the given inputs.
-	status, sigs, err := pool.Withdrawal(0, requests, eligible, changeStart, store)
+	startAddr := vp.TstNewWithdrawalAddress(t, pool, def.SeriesID, 0, 0)
+	lastSeriesID := def.SeriesID
+	dustThreshold := btcutil.Amount(1e4)
+	currentBlock := int32(vp.TstInputsBlock + vp.TstEligibleInputMinConfirmations + 1)
+	status, sigs, err := pool.StartWithdrawal(
+		0, requests, startAddr, lastSeriesID, changeStart, store, currentBlock, dustThreshold)
 	if err != nil {
 		t.Fatal(err)
 	}
