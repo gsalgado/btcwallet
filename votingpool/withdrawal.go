@@ -416,14 +416,7 @@ func (p *Pool) StartWithdrawal(
 		return nil, nil, err
 	}
 
-	return p.Withdrawal(roundID, requests, eligible, changeStart, txStore)
-}
-
-func (vp *Pool) Withdrawal(
-	roundID uint32, requests []OutputRequest, inputs []CreditInterface, changeStart *ChangeAddress,
-	txStore *txstore.Store) (*WithdrawalStatus, map[string]TxSigs, error) {
-
-	w := newWithdrawal(roundID, requests, inputs, changeStart)
+	w := newWithdrawal(roundID, requests, eligible, changeStart)
 	if err := w.fulfillRequests(); err != nil {
 		return nil, nil, err
 	}
