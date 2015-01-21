@@ -25,6 +25,8 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 )
 
+// TODO: Rename votingPoolID to poolID everywhere in this file.
+
 // These constants define the serialized length for a given encrypted extended
 //  public or private key.
 const (
