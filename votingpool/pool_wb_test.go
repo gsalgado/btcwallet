@@ -17,11 +17,111 @@
 package votingpool
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 )
+
+func TestPoolEnsureUsedAddr(t *testing.T) {
+	tearDown, mgr, pool := TstCreatePool(t)
+	defer tearDown()
+
+	var err error
+	var script []byte
+	var addr waddrmgr.ManagedScriptAddress
+	TstCreateSeries(t, pool, []TstSeriesDef{{ReqSigs: 2, PubKeys: TstPubKeys[0:3], SeriesID: 0}})
+
+	idx := Index(0)
+	TstRunWithManagerUnlocked(t, mgr, func() {
+		err = pool.ensureUsedAddr(0, 0, idx)
+	})
+	if err != nil {
+		t.Fatalf("Failed to ensure used addresses: %v", err)
+	}
+	addr, err = pool.getUsedAddr(0, 0, 0)
+	if err != nil {
+		t.Fatalf("Failed to get addr from used addresses set: %v", err)
+	}
+	TstRunWithManagerUnlocked(t, mgr, func() {
+		script, err = addr.Script()
+	})
+	if err != nil {
+		t.Fatalf("Failed to get script: %v", err)
+	}
+	wantScript, _ := pool.DepositScript(0, 0, 0)
+	if !bytes.Equal(script, wantScript) {
+		t.Fatalf("Script from looked up addr is not what we expect")
+	}
+
+	idx = Index(3)
+	TstRunWithManagerUnlocked(t, mgr, func() {
+		err = pool.ensureUsedAddr(0, 0, idx)
+	})
+	if err != nil {
+		t.Fatalf("Failed to ensure used addresses: %v", err)
+	}
+	for _, i := range []int{0, 1, 2, 3} {
+		fmt.Println(i)
+		addr, err = pool.getUsedAddr(0, 0, Index(i))
+		if err != nil {
+			t.Fatalf("Failed to get addr from used addresses set: %v", err)
+		}
+		TstRunWithManagerUnlocked(t, mgr, func() {
+			script, err = addr.Script()
+		})
+		if err != nil {
+			t.Fatalf("Failed to get script: %v", err)
+		}
+		wantScript, _ := pool.DepositScript(0, 0, Index(i))
+		if !bytes.Equal(script, wantScript) {
+			t.Fatalf("Script from looked up addr is not what we expect")
+		}
+	}
+}
+
+func TestPoolGetUsedAddr(t *testing.T) {
+	tearDown, mgr, pool := TstCreatePool(t)
+	defer tearDown()
+
+	TstCreateSeries(t, pool, []TstSeriesDef{{ReqSigs: 2, PubKeys: TstPubKeys[0:3], SeriesID: 0}})
+
+	// Addr with series=0, branch=0, index=10 has never been used, so it should
+	// return nil.
+	addr, err := pool.getUsedAddr(0, 0, 10)
+	if err != nil {
+		t.Fatalf("Error when looking up used addr: %v", err)
+	}
+	if addr != nil {
+		t.Fatalf("Unused address found in used addresses DB: %v", addr)
+	}
+
+	// Now we add that addr to the used addresses DB and check that the value
+	// returned by getUsedAddr() is what we expect.
+	TstRunWithManagerUnlocked(t, mgr, func() {
+		err = pool.addUsedAddr(0, 0, 10)
+	})
+	if err != nil {
+		t.Fatalf("Error when storing addr in used addresses DB: %v", err)
+	}
+	var script []byte
+	addr, err = pool.getUsedAddr(0, 0, 10)
+	if err != nil {
+		t.Fatalf("Error when looking up used addr: %v", err)
+	}
+	TstRunWithManagerUnlocked(t, mgr, func() {
+		script, err = addr.Script()
+	})
+	if err != nil {
+		t.Fatalf("Failed to get script: %v", err)
+	}
+	wantScript, _ := pool.DepositScript(0, 0, 10)
+	if !bytes.Equal(script, wantScript) {
+		t.Fatalf("Script from looked up addr is not what we expect")
+	}
+}
 
 func TestSerializationErrors(t *testing.T) {
 	tearDown, mgr, _ := TstCreatePool(t)
@@ -58,17 +158,16 @@ func TestSerializationErrors(t *testing.T) {
 		},
 	}
 
-	// We need to unlock the manager in order to encrypt with the
-	// private key.
-	TstUnlockManager(t, mgr)
-
 	active := true
 	for testNum, test := range tests {
 		encryptedPubs, err := encryptKeys(test.pubKeys, mgr, waddrmgr.CKTPublic)
 		if err != nil {
 			t.Fatalf("Test #%d - Error encrypting pubkeys: %v", testNum, err)
 		}
-		encryptedPrivs, err := encryptKeys(test.privKeys, mgr, waddrmgr.CKTPrivate)
+		var encryptedPrivs [][]byte
+		TstRunWithManagerUnlocked(t, mgr, func() {
+			encryptedPrivs, err = encryptKeys(test.privKeys, mgr, waddrmgr.CKTPrivate)
+		})
 		if err != nil {
 			t.Fatalf("Test #%d - Error encrypting privkeys: %v", testNum, err)
 		}
@@ -125,16 +224,15 @@ func TestSerialization(t *testing.T) {
 		},
 	}
 
-	// We need to unlock the manager in order to encrypt with the
-	// private key.
-	TstUnlockManager(t, mgr)
-
+	var encryptedPrivs [][]byte
 	for testNum, test := range tests {
 		encryptedPubs, err := encryptKeys(test.pubKeys, mgr, waddrmgr.CKTPublic)
 		if err != nil {
 			t.Fatalf("Test #%d - Error encrypting pubkeys: %v", testNum, err)
 		}
-		encryptedPrivs, err := encryptKeys(test.privKeys, mgr, waddrmgr.CKTPrivate)
+		TstRunWithManagerUnlocked(t, mgr, func() {
+			encryptedPrivs, err = encryptKeys(test.privKeys, mgr, waddrmgr.CKTPrivate)
+		})
 		if err != nil {
 			t.Fatalf("Test #%d - Error encrypting privkeys: %v", testNum, err)
 		}
@@ -161,7 +259,7 @@ func TestSerialization(t *testing.T) {
 		}
 
 		if row.active != test.active {
-			t.Errorf("Serialization #%d - active mismatch: got %d want %d",
+			t.Errorf("Serialization #%d - active mismatch: got %v want %v",
 				testNum, row.active, test.active)
 		}
 
@@ -251,17 +349,18 @@ func TestValidateAndDecryptKeys(t *testing.T) {
 		t.Fatalf("Failed to encrypt public keys: %v", err)
 	}
 
-	// We need to unlock the manager in order to encrypt with the
-	// private key.
-	TstUnlockManager(t, manager)
-
-	rawPrivKeys, err := encryptKeys(
-		[]string{TstPrivKeys[0], ""}, manager, waddrmgr.CKTPrivate)
+	var rawPrivKeys [][]byte
+	TstRunWithManagerUnlocked(t, manager, func() {
+		rawPrivKeys, err = encryptKeys([]string{TstPrivKeys[0], ""}, manager, waddrmgr.CKTPrivate)
+	})
 	if err != nil {
 		t.Fatalf("Failed to encrypt private keys: %v", err)
 	}
 
-	pubKeys, privKeys, err := validateAndDecryptKeys(rawPubKeys, rawPrivKeys, pool)
+	var pubKeys, privKeys []*hdkeychain.ExtendedKey
+	TstRunWithManagerUnlocked(t, manager, func() {
+		pubKeys, privKeys, err = validateAndDecryptKeys(rawPubKeys, rawPrivKeys, pool)
+	})
 	if err != nil {
 		t.Fatalf("Error when validating/decrypting keys: %v", err)
 	}
@@ -274,7 +373,7 @@ func TestValidateAndDecryptKeys(t *testing.T) {
 	}
 
 	if pubKeys[0].String() != TstPubKeys[0] || pubKeys[1].String() != TstPubKeys[1] {
-		t.Fatalf("Public keys don't match: %v, %v", TstPubKeys[0], TstPubKeys[1], pubKeys)
+		t.Fatalf("Public keys don't match: %v!=%v ", TstPubKeys[0:2], pubKeys)
 	}
 
 	if privKeys[0].String() != TstPrivKeys[0] || privKeys[1] != nil {
@@ -300,11 +399,10 @@ func TestValidateAndDecryptKeysErrors(t *testing.T) {
 		t.Fatalf("Failed to encrypt public key: %v", err)
 	}
 
-	// We need to unlock the manager in order to encrypt with the
-	// private key.
-	TstUnlockManager(t, manager)
-
-	encryptedPrivKeys, err := encryptKeys(TstPrivKeys[1:2], manager, waddrmgr.CKTPrivate)
+	var encryptedPrivKeys [][]byte
+	TstRunWithManagerUnlocked(t, manager, func() {
+		encryptedPrivKeys, err = encryptKeys(TstPrivKeys[1:2], manager, waddrmgr.CKTPrivate)
+	})
 	if err != nil {
 		t.Fatalf("Failed to encrypt private key: %v", err)
 	}
@@ -341,8 +439,9 @@ func TestValidateAndDecryptKeysErrors(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		_, _, err := validateAndDecryptKeys(test.rawPubKeys, test.rawPrivKeys, pool)
-
+		TstRunWithManagerUnlocked(t, manager, func() {
+			_, _, err = validateAndDecryptKeys(test.rawPubKeys, test.rawPrivKeys, pool)
+		})
 		TstCheckError(t, fmt.Sprintf("Test #%d", i), err, test.err)
 	}
 }

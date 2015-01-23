@@ -48,7 +48,7 @@ func TestOutputSplittingNotEnoughInputs(t *testing.T) {
 		TstNewOutputRequest(t, 2, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", output2Amount, net),
 	}
 	seriesID, eligible := TstCreateCredits(t, pool, []int64{7}, store)
-	w := newWithdrawal(0, requests, eligible, newChangeAddress(t, pool, seriesID, 0))
+	w := newWithdrawal(0, requests, eligible, TstNewChangeAddress(t, pool, seriesID, 0))
 
 	// Trigger an output split because of lack of inputs by forcing a high fee.
 	// If we just started with not enough inputs for the requested outputs,
@@ -89,7 +89,7 @@ func TestOutputSplittingOversizeTx(t *testing.T) {
 	request := TstNewOutputRequest(
 		t, 1, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", requestAmount, pool.Manager().Net())
 	seriesID, eligible := TstCreateCredits(t, pool, []int64{bigInput, smallInput}, store)
-	changeStart := newChangeAddress(t, pool, seriesID, 0)
+	changeStart := TstNewChangeAddress(t, pool, seriesID, 0)
 	w := newWithdrawal(0, []OutputRequest{request}, eligible, changeStart)
 	w.newWithdrawalTx = func() *withdrawalTx {
 		tx := newWithdrawalTx()
@@ -160,10 +160,7 @@ func TestWithdrawalTxOutputs(t *testing.T) {
 		TstNewOutputRequest(t, 1, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", 3e6, net),
 		TstNewOutputRequest(t, 2, "3PbExiaztsSYgh6zeMswC49hLUwhTQ86XG", 2e6, net),
 	}
-	changeStart, err := pool.ChangeAddress(seriesID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	changeStart := TstNewChangeAddress(t, pool, seriesID, 0)
 
 	w := newWithdrawal(0, outputs, eligible, changeStart)
 	if err := w.fulfillRequests(); err != nil {
@@ -194,10 +191,7 @@ func TestFulfillRequestsNoSatisfiableOutputs(t *testing.T) {
 	seriesID, eligible := TstCreateCredits(t, pool, []int64{1e6}, store)
 	request := TstNewOutputRequest(
 		t, 1, "3Qt1EaKRD9g9FeL2DGkLLswhK1AKmmXFSe", btcutil.Amount(3e6), pool.Manager().Net())
-	changeStart, err := pool.ChangeAddress(seriesID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	changeStart := TstNewChangeAddress(t, pool, seriesID, 0)
 
 	w := newWithdrawal(0, []OutputRequest{request}, eligible, changeStart)
 	if err := w.fulfillRequests(); err != nil {
@@ -236,10 +230,7 @@ func TestFulfillRequestsNotEnoughCreditsForAllRequests(t *testing.T) {
 	out3 := TstNewOutputRequest(
 		t, 3, "3Qt1EaKRD9g9FeL2DGkLLswhK1AKmmXFSe", btcutil.Amount(5e6), net)
 	outputs := []OutputRequest{out1, out2, out3}
-	changeStart, err := pool.ChangeAddress(seriesID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	changeStart := TstNewChangeAddress(t, pool, seriesID, 0)
 
 	w := newWithdrawal(0, outputs, eligible, changeStart)
 	if err := w.fulfillRequests(); err != nil {
@@ -401,10 +392,7 @@ func TestRollbackLastOutputWhenNewOutputAdded(t *testing.T) {
 		TstNewOutputRequest(t, 1, "34eVkREKgvvGASZW7hkgE2uNc1yycntMK6", 1, net),
 		TstNewOutputRequest(t, 2, "3PbExiaztsSYgh6zeMswC49hLUwhTQ86XG", 2, net),
 	}
-	changeStart, err := pool.ChangeAddress(series, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	changeStart := TstNewChangeAddress(t, pool, series, 0)
 
 	w := newWithdrawal(0, requests, eligible, changeStart)
 	w.newWithdrawalTx = func() *withdrawalTx {
@@ -458,10 +446,7 @@ func TestRollbackLastOutputWhenNewInputAdded(t *testing.T) {
 		TstNewOutputRequest(t, 3, "3Qt1EaKRD9g9FeL2DGkLLswhK1AKmmXFSe", 6, net),
 		TstNewOutputRequest(t, 2, "3PbExiaztsSYgh6zeMswC49hLUwhTQ86XG", 3, net),
 	}
-	changeStart, err := pool.ChangeAddress(series, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	changeStart := TstNewChangeAddress(t, pool, series, 0)
 
 	w := newWithdrawal(0, requests, eligible, changeStart)
 	w.newWithdrawalTx = func() *withdrawalTx {
@@ -690,13 +675,14 @@ func TestSignMultiSigUTXO(t *testing.T) {
 
 	msgtx := tx.toMsgTx()
 	txSigs := sigs[Ntxid(msgtx)]
-	TstUnlockManager(t, mgr)
 
 	idx := 0 // The index of the tx input we're going to sign.
 	pkScript := tx.inputs[idx].TxOut().PkScript
-	if err = signMultiSigUTXO(mgr, msgtx, idx, pkScript, txSigs[idx]); err != nil {
-		t.Fatal(err)
-	}
+	TstRunWithManagerUnlocked(t, mgr, func() {
+		if err = signMultiSigUTXO(mgr, msgtx, idx, pkScript, txSigs[idx]); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestSignMultiSigUTXOUnparseablePkScript(t *testing.T) {
@@ -760,14 +746,15 @@ func TestSignMultiSigUTXONotEnoughSigs(t *testing.T) {
 	}
 	msgtx := tx.toMsgTx()
 	txSigs := sigs[Ntxid(msgtx)]
-	TstUnlockManager(t, mgr)
 
 	idx := 0 // The index of the tx input we're going to sign.
 	// Here we provide reqSigs-1 signatures to SignMultiSigUTXO()
 	reqSigs := tx.inputs[idx].Address().Series().TstGetReqSigs()
 	txInSigs := txSigs[idx][:reqSigs-1]
 	pkScript := tx.inputs[idx].TxOut().PkScript
-	err = signMultiSigUTXO(mgr, msgtx, idx, pkScript, txInSigs)
+	TstRunWithManagerUnlocked(t, mgr, func() {
+		err = signMultiSigUTXO(mgr, msgtx, idx, pkScript, txInSigs)
+	})
 
 	TstCheckError(t, "", err, ErrTxSigning)
 }
@@ -981,7 +968,7 @@ func TestTxSizeCalculation(t *testing.T) {
 	// Now add a change output, get a msgtx, sign it and get its SerializedSize
 	// to compare with the value above.
 	seriesID := tx.inputs[0].Address().SeriesID()
-	tx.addChange(newChangeAddress(t, pool, seriesID, 0).Addr().ScriptAddress())
+	tx.addChange(TstNewChangeAddress(t, pool, seriesID, 0).Addr().ScriptAddress())
 	msgtx := tx.toMsgTx()
 	sigs, err := getRawSigs([]*withdrawalTx{tx})
 	if err != nil {
@@ -1125,13 +1112,13 @@ func checkTxInputs(t *testing.T, tx *withdrawalTx, inputs []CreditInterface) {
 // transaction (using the given raw signatures and the pkScripts from credits) and execute
 // those scripts to validate them.
 func signTxAndValidate(t *testing.T, mgr *waddrmgr.Manager, tx *btcwire.MsgTx, txSigs TxSigs, credits []CreditInterface) {
-	TstUnlockManager(t, mgr)
-	defer mgr.Lock()
 	for i := range tx.TxIn {
 		pkScript := credits[i].TxOut().PkScript
-		if err := signMultiSigUTXO(mgr, tx, i, pkScript, txSigs[i]); err != nil {
-			t.Fatal(err)
-		}
+		TstRunWithManagerUnlocked(t, mgr, func() {
+			if err := signMultiSigUTXO(mgr, tx, i, pkScript, txSigs[i]); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
@@ -1191,14 +1178,6 @@ func checkTxChangeAmount(t *testing.T, tx *withdrawalTx, amount btcutil.Amount) 
 		t.Fatalf("Wrong change output amount; got %d, want %d",
 			tx.changeOutput.Value, int64(amount))
 	}
-}
-
-func newChangeAddress(t *testing.T, pool *Pool, seriesID uint32, idx Index) *ChangeAddress {
-	changeAddr, err := pool.ChangeAddress(seriesID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return changeAddr
 }
 
 // checkLastOutputWasSplit ensures that the amount of the last output in the

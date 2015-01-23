@@ -109,10 +109,9 @@ func TestLoadPoolAndEmpowerSeries(t *testing.T) {
 		t.Fatalf("Creating voting pool and Creating series failed: %v", err)
 	}
 
-	// We need to unlock the manager in order to empower a series
-	vp.TstUnlockManager(t, manager)
-
-	err = vp.LoadAndEmpowerSeries(pool.TstNamespace(), manager, poolID, 0, vp.TstPrivKeys[0])
+	vp.TstRunWithManagerUnlocked(t, pool.Manager(), func() {
+		err = vp.LoadAndEmpowerSeries(pool.TstNamespace(), manager, poolID, 0, vp.TstPrivKeys[0])
+	})
 	if err != nil {
 		t.Fatalf("Load voting pool and Empower series failed: %v", err)
 	}
@@ -345,7 +344,7 @@ func TestPutSeriesErrors(t *testing.T) {
 }
 
 func TestCannotReplaceEmpoweredSeries(t *testing.T) {
-	tearDown, manager, pool := vp.TstCreatePool(t)
+	tearDown, mgr, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
 	var seriesID uint32 = 0
@@ -354,12 +353,11 @@ func TestCannotReplaceEmpoweredSeries(t *testing.T) {
 		t.Fatalf("Failed to create series", err)
 	}
 
-	// We need to unlock the manager in order to empower a series.
-	vp.TstUnlockManager(t, manager)
-
-	if err := pool.EmpowerSeries(seriesID, vp.TstPrivKeys[1]); err != nil {
-		t.Fatalf("Failed to empower series", err)
-	}
+	vp.TstRunWithManagerUnlocked(t, mgr, func() {
+		if err := pool.EmpowerSeries(seriesID, vp.TstPrivKeys[1]); err != nil {
+			t.Fatalf("Failed to empower series", err)
+		}
+	})
 
 	err := pool.ReplaceSeries(
 		1, seriesID, 2, []string{vp.TstPubKeys[0], vp.TstPubKeys[2], vp.TstPubKeys[3]})
@@ -485,25 +483,23 @@ func validateReplaceSeries(t *testing.T, pool *vp.Pool, testID int, replacedWith
 }
 
 func TestEmpowerSeries(t *testing.T) {
-	tearDown, manager, pool := vp.TstCreatePool(t)
+	tearDown, mgr, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
 	seriesID := uint32(0)
 	if err := pool.CreateSeries(1, seriesID, 2, vp.TstPubKeys[0:3]); err != nil {
 		t.Fatalf("Failed to create series: %v", err)
 	}
-	// We need to unlock the manager in order to empower a series.
-	vp.TstUnlockManager(t, manager)
 
-	err := pool.EmpowerSeries(seriesID, vp.TstPrivKeys[0])
-
-	if err != nil {
-		t.Errorf("Failed to empower series: %v", err)
-	}
+	vp.TstRunWithManagerUnlocked(t, mgr, func() {
+		if err := pool.EmpowerSeries(seriesID, vp.TstPrivKeys[0]); err != nil {
+			t.Errorf("Failed to empower series: %v", err)
+		}
+	})
 }
 
 func TestEmpowerSeriesErrors(t *testing.T) {
-	tearDown, manager, pool := vp.TstCreatePool(t)
+	tearDown, _, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
 	seriesID := uint32(0)
@@ -541,9 +537,6 @@ func TestEmpowerSeriesErrors(t *testing.T) {
 			err: vp.ErrKeysPrivatePublicMismatch,
 		},
 	}
-
-	// We need to unlock the manager in order to empower a series.
-	vp.TstUnlockManager(t, manager)
 
 	for i, test := range tests {
 		err := pool.EmpowerSeries(test.seriesID, test.key)
@@ -639,11 +632,12 @@ func setUpLoadAllSeries(t *testing.T, namespace walletdb.Namespace, mgr *waddrmg
 		}
 
 		for _, privKey := range series.privKeys {
-			err := pool.EmpowerSeries(series.id, privKey)
-			if err != nil {
-				t.Fatalf("Test #%d Series #%d: empower with privKey %v failed: %v",
-					test.id, series.id, privKey, err)
-			}
+			vp.TstRunWithManagerUnlocked(t, mgr, func() {
+				if err := pool.EmpowerSeries(series.id, privKey); err != nil {
+					t.Fatalf("Test #%d Series #%d: empower with privKey %v failed: %v",
+						test.id, series.id, privKey, err)
+				}
+			})
 		}
 	}
 	return pool
@@ -653,16 +647,14 @@ func TestLoadAllSeries(t *testing.T) {
 	tearDown, manager, pool := vp.TstCreatePool(t)
 	defer tearDown()
 
-	// We need to unlock the manager in order to load all series.
-	vp.TstUnlockManager(t, manager)
-
 	for _, test := range testLoadAllSeriesTests {
 		pool := setUpLoadAllSeries(t, pool.TstNamespace(), manager, test)
 		pool.TstEmptySeriesLookup()
-		err := pool.LoadAllSeries()
-		if err != nil {
-			t.Fatalf("Test #%d: failed to load voting pool: %v", test.id, err)
-		}
+		vp.TstRunWithManagerUnlocked(t, manager, func() {
+			if err := pool.LoadAllSeries(); err != nil {
+				t.Fatalf("Test #%d: failed to load voting pool: %v", test.id, err)
+			}
+		})
 		for _, seriesData := range test.series {
 			validateLoadAllSeries(t, pool, test.id, seriesData)
 		}
@@ -902,16 +894,15 @@ func TestPoolChangeAddress(t *testing.T) {
 
 	pubKeys := vp.TstPubKeys[1:4]
 	vp.TstCreateSeries(t, pool, []vp.TstSeriesDef{{ReqSigs: 2, PubKeys: pubKeys, SeriesID: 0}})
-	addr, err := pool.ChangeAddress(0, 0)
-	if err != nil {
-		t.Fatalf("Failed to get ChangeAddress: %v", err)
-	}
+
+	addr := vp.TstNewChangeAddress(t, pool, 0, 0)
 	checkPoolAddress(t, addr, 0, 0, 0)
 
 	// When the series is not active, we should get an error.
+	pubKeys = vp.TstPubKeys[3:6]
 	vp.TstCreateSeries(
 		t, pool, []vp.TstSeriesDef{{ReqSigs: 2, PubKeys: pubKeys, SeriesID: 1, Inactive: true}})
-	_, err = pool.ChangeAddress(1, 0)
+	_, err := pool.ChangeAddress(1, 0)
 	vp.TstCheckError(t, "", err, vp.ErrSeriesNotActive)
 }
 
@@ -921,97 +912,25 @@ func TestPoolWithdrawalAddress(t *testing.T) {
 
 	pubKeys := vp.TstPubKeys[1:4]
 	vp.TstCreateSeries(t, pool, []vp.TstSeriesDef{{ReqSigs: 2, PubKeys: pubKeys, SeriesID: 0}})
-	addr, err := pool.WithdrawalAddress(0, 0, 0)
-	if err != nil {
-		t.Fatalf("Failed to get WithdrawalAddress: %v", err)
-	}
+	addr := vp.TstNewWithdrawalAddress(t, pool, 0, 0, 0)
 	checkPoolAddress(t, addr, 0, 0, 0)
 
-	// When the requested branch is > len(series.publicKeys), we should get an
-	// error.
-	addr, err = pool.WithdrawalAddress(0, vp.Branch(len(pubKeys)+1), 0)
-	vp.TstCheckError(t, "", err, vp.ErrInvalidBranch)
-}
-
-func TestWithdrawalAddressNextBefore(t *testing.T) {
-	tearDown, _, pool := vp.TstCreatePool(t)
-	defer tearDown()
-
-	series := []vp.TstSeriesDef{
-		{ReqSigs: 2, PubKeys: vp.TstPubKeys[1:4], SeriesID: 0},
-		{ReqSigs: 2, PubKeys: vp.TstPubKeys[3:6], SeriesID: 1},
-	}
-	vp.TstCreateSeries(t, pool, series)
-	stopSeriesID := uint32(2)
-
-	lastIdx := pool.GetSeries(0).LastUsedIndexFor(0)
-	addr := vp.TstNewWithdrawalAddress(t, pool, 0, 0, lastIdx-1)
-	var err error
-	// NextBefore() first increments just the branch, which ranges from 0 to 2
-	// here (because our series have 3 public keys).
-	for _, i := range []int{1, 2} {
-		addr, err = addr.NextBefore(stopSeriesID)
-		if err != nil {
-			t.Fatalf("Failed to get next address: %v", err)
-		}
-		checkWithdrawalAddressMatches(t, addr, 0, vp.Branch(i), lastIdx-1)
-	}
-
-	// The last NextBefore() above gave us the addr with branch=2,
-	// idx=lastIdx-1, so the next 3 calls should give us the addresses with
-	// branch=[0-2] and idx=lastIdx.
-	for _, i := range []int{0, 1, 2} {
-		addr, err = addr.NextBefore(stopSeriesID)
-		if err != nil {
-			t.Fatalf("Failed to get next address: %v", err)
-		}
-		checkWithdrawalAddressMatches(t, addr, 0, vp.Branch(i), lastIdx)
-	}
-
-	// Now we've gone through all the available branch/idx combinations, so
-	// we should move to the next series and start again with branch=0, idx=0.
-	for _, i := range []int{0, 1, 2} {
-		addr, err = addr.NextBefore(stopSeriesID)
-		if err != nil {
-			t.Fatalf("Failed to get next address: %v", err)
-		}
-		checkWithdrawalAddressMatches(t, addr, 1, vp.Branch(i), 0)
-	}
-
-	// Finally check that NextBefore() returns nil when we've reached the last
-	// available address before stopSeriesID.
-	addr = vp.TstNewWithdrawalAddress(t, pool, 1, 2, lastIdx)
-	addr, err = addr.NextBefore(stopSeriesID)
-	if err != nil {
-		t.Fatalf("Failed to get next address: %v", err)
-	}
-	if addr != nil {
-		t.Fatalf("Wrong WithdrawalAddress; got %s, want nil", addr.AddrIdentifier())
-	}
-}
-
-func checkWithdrawalAddressMatches(t *testing.T, addr *vp.WithdrawalAddress, seriesID uint32, branch vp.Branch, index vp.Index) {
-	if addr.SeriesID() != seriesID {
-		t.Fatalf("Wrong seriesID; got %d, want %d", addr.SeriesID(), seriesID)
-	}
-	if addr.Branch() != branch {
-		t.Fatalf("Wrong branch; got %d, want %d", addr.Branch(), branch)
-	}
-	if addr.Index() != index {
-		t.Fatalf("Wrong index; got %d, want %d", addr.Index(), index)
-	}
+	// When the requested address is not present in the set of used addresses
+	// for that Pool, we should get an error.
+	_, err := pool.WithdrawalAddress(0, 2, 3)
+	vp.TstCheckError(t, "", err, vp.ErrWithdrawFromUnusedAddr)
 }
 
 func checkPoolAddress(
 	t *testing.T, addr vp.PoolAddress, seriesID uint32, branch vp.Branch, index vp.Index) {
 
-	if addr.SeriesID() != 0 {
-		t.Fatalf("Wrong SeriesID; got %d, want %d", addr.SeriesID(), 0)
+	if addr.SeriesID() != seriesID {
+		t.Fatalf("Wrong SeriesID; got %d, want %d", addr.SeriesID(), seriesID)
 	}
-	if addr.Branch() != 0 {
-		t.Fatalf("Wrong Branch; got %d, want %d", addr.Branch(), 0)
+	if addr.Branch() != branch {
+		t.Fatalf("Wrong Branch; got %d, want %d", addr.Branch(), branch)
 	}
-	if addr.Index() != 0 {
-		t.Fatalf("Wrong Index; got %d, want %d", addr.Index(), 0)
+	if addr.Index() != index {
+		t.Fatalf("Wrong Index; got %d, want %d", addr.Index(), index)
 	}
 }

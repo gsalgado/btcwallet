@@ -137,6 +137,13 @@ const (
 	// ID that is not sequantial.
 	ErrSeriesIDNotSequential
 
+	// ErrInvalidScriptHash indicates an invalid P2SH.
+	ErrInvalidScriptHash
+
+	// ErrWithdrawFromUnusedAddr indicates an attempt to withdraw funds from
+	// an address which has not been used before.
+	ErrWithdrawFromUnusedAddr
+
 	// lastErr is used for testing, making it possible to iterate over
 	// the error codes in order to check that they all have proper
 	// translations in errorCodeStrings.
@@ -175,6 +182,8 @@ var errorCodeStrings = map[ErrorCode]string{
 	ErrPreconditionNotMet:        "ErrPreconditionNotMet",
 	ErrTxSigning:                 "ErrTxSigning",
 	ErrTxOutNotFound:             "ErrTxOutNotFound",
+	ErrInvalidScriptHash:         "ErrInvalidScriptHash",
+	ErrWithdrawFromUnusedAddr:    "ErrWithdrawFromUnusedAddr",
 }
 
 // String returns the ErrorCode as a human-readable name.

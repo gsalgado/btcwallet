@@ -89,26 +89,47 @@ func createMsgTx(pkScript []byte, amts []int64) *btcwire.MsgTx {
 	return msgtx
 }
 
-func TstCreatePkScript(t *testing.T, pool *Pool, series uint32, branch Branch, index Index) []byte {
-	script, err := pool.DepositScript(series, branch, index)
+func TstNewDepositScript(t *testing.T, p *Pool, seriesID uint32, branch Branch, idx Index) []byte {
+	script, err := p.DepositScript(seriesID, branch, idx)
 	if err != nil {
-		t.Fatalf("Failed to create depositscript for series %d, branch %d, index %d: %v", series, branch, index, err)
+		t.Fatalf("Failed to create depositscript for series %d, branch %d, index %d: %v",
+			seriesID, branch, idx, err)
 	}
+	return script
+}
 
-	mgr := pool.Manager()
-	TstUnlockManager(t, mgr)
-	defer mgr.Lock()
-	// We need to pass the bsHeight, but currently if we just pass
-	// anything > 0, then the ImportScript will be happy. It doesn't
-	// save the value, but only uses it to check if it needs to update
-	// the startblock.
-	var bsHeight int32 = 1
-	addr, err := mgr.ImportScript(script, &waddrmgr.BlockStamp{Height: bsHeight})
+// TstEnsureUsedAddr ensures the address defined by the given series/branch/idx
+// is present in the set of used addresses for the given Pool.
+func TstEnsureUsedAddr(t *testing.T, p *Pool, seriesID uint32, branch Branch, idx Index) []byte {
+	addr, err := p.getUsedAddr(seriesID, branch, idx)
+	if err != nil {
+		t.Fatal(err)
+	} else if addr != nil {
+		var script []byte
+		TstRunWithManagerUnlocked(t, p.Manager(), func() {
+			script, err = addr.Script()
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return script
+	}
+	TstRunWithManagerUnlocked(t, p.Manager(), func() {
+		err = p.ensureUsedAddr(seriesID, branch, idx)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return TstNewDepositScript(t, p, seriesID, branch, idx)
+}
 
-	pkScript, err := btcscript.PayToAddrScript(addr.Address())
+func TstCreatePkScript(t *testing.T, p *Pool, seriesID uint32, branch Branch, idx Index) []byte {
+	script := TstEnsureUsedAddr(t, p, seriesID, branch, idx)
+	addr, err := p.addressFor(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkScript, err := btcscript.PayToAddrScript(addr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,20 +157,18 @@ type TstSeriesDef struct {
 // of TstSeriesDef. If the definition includes any private keys, the Series is
 // empowered with them.
 func TstCreateSeries(t *testing.T, pool *Pool, definitions []TstSeriesDef) {
-	// Unlock the manager in case we have any private keys to load.
-	TstUnlockManager(t, pool.Manager())
-	defer pool.Manager().Lock()
-
 	for _, def := range definitions {
 		err := pool.CreateSeries(CurrentVersion, def.SeriesID, def.ReqSigs, def.PubKeys)
 		if err != nil {
 			t.Fatalf("Cannot creates series %d: %v", def.SeriesID, err)
 		}
-		for _, key := range def.PrivKeys {
-			if err := pool.EmpowerSeries(def.SeriesID, key); err != nil {
-				t.Fatal(err)
+		TstRunWithManagerUnlocked(t, pool.Manager(), func() {
+			for _, key := range def.PrivKeys {
+				if err := pool.EmpowerSeries(def.SeriesID, key); err != nil {
+					t.Fatal(err)
+				}
 			}
-		}
+		})
 		pool.GetSeries(def.SeriesID).active = !def.Inactive
 	}
 }
@@ -222,11 +241,7 @@ func TstCreateCreditsOnSeries(t *testing.T, pool *Pool, seriesID uint32, amounts
 	pkScript := TstCreatePkScript(t, pool, seriesID, branch, idx)
 	eligible := make([]CreditInterface, len(amounts))
 	for i, credit := range TstCreateInputs(t, store, pkScript, amounts) {
-		addr, err := pool.WithdrawalAddress(seriesID, branch, idx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		eligible[i] = NewCredit(credit, *addr)
+		eligible[i] = NewCredit(credit, *TstNewWithdrawalAddress(t, pool, seriesID, branch, idx))
 	}
 	return eligible
 }
@@ -333,19 +348,33 @@ func TstNewOutputRequest(t *testing.T, transaction uint32, address string, amoun
 	}
 }
 
-func TstNewWithdrawalOutput(request OutputRequest, status string, outpoints []OutBailmentOutpoint) *WithdrawalOutput {
+func TstNewWithdrawalOutput(
+	r OutputRequest, status string, outpoints []OutBailmentOutpoint) *WithdrawalOutput {
 	output := &WithdrawalOutput{
-		request:   request,
+		request:   r,
 		status:    status,
 		outpoints: outpoints,
 	}
 	return output
 }
 
-func TstNewWithdrawalAddress(t *testing.T, pool *Pool, seriesID uint32, branch Branch, index Index) *WithdrawalAddress {
-	addr, err := pool.WithdrawalAddress(seriesID, branch, index)
+func TstNewWithdrawalAddress(
+	t *testing.T, p *Pool, seriesID uint32, branch Branch, index Index) (addr *WithdrawalAddress) {
+	TstEnsureUsedAddr(t, p, seriesID, branch, index)
+	var err error
+	TstRunWithManagerUnlocked(t, p.Manager(), func() {
+		addr, err = p.WithdrawalAddress(seriesID, branch, index)
+	})
 	if err != nil {
 		t.Fatalf("Failed to get WithdrawalAddress: %v", err)
+	}
+	return addr
+}
+
+func TstNewChangeAddress(t *testing.T, p *Pool, seriesID uint32, idx Index) (addr *ChangeAddress) {
+	addr, err := p.ChangeAddress(seriesID, idx)
+	if err != nil {
+		t.Fatalf("Failed to get ChangeAddress: %v", err)
 	}
 	return addr
 }

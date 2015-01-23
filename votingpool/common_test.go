@@ -52,8 +52,12 @@ func TstCheckError(t *testing.T, testName string, gotErr error, wantErrCode Erro
 	}
 }
 
-func TstUnlockManager(t *testing.T, mgr *waddrmgr.Manager) {
+// TstRunWithManagerUnlocked calls the given callback with the manager unlocked,
+// and locks it again before returning.
+func TstRunWithManagerUnlocked(t *testing.T, mgr *waddrmgr.Manager, callback func()) {
 	if err := mgr.Unlock(privPassphrase); err != nil {
 		t.Fatal(err)
 	}
+	defer mgr.Lock()
+	callback()
 }

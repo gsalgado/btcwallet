@@ -50,8 +50,7 @@ func TestGetEligibleInputs(t *testing.T) {
 	var inputs []txstore.Credit
 	for i := 0; i < len(scripts); i++ {
 		txIndex := int(i) + 1
-		created := TstCreateInputsOnBlock(
-			t, store, txIndex, scripts[i], eligibleAmounts)
+		created := TstCreateInputsOnBlock(t, store, txIndex, scripts[i], eligibleAmounts)
 		inputs = append(inputs, created...)
 	}
 
@@ -59,9 +58,13 @@ func TestGetEligibleInputs(t *testing.T) {
 	startAddr := TstNewWithdrawalAddress(t, pool, 0, 0, 0)
 	lastSeriesID := uint32(1)
 	currentBlock := int32(TstInputsBlock + eligibleInputMinConfirmations + 1)
-	eligibles, err := pool.getEligibleInputs(
-		store, startAddr, lastSeriesID, dustThreshold, int32(currentBlock),
-		eligibleInputMinConfirmations, totalAmount)
+	var eligibles []CreditInterface
+	var err error
+	TstRunWithManagerUnlocked(t, pool.Manager(), func() {
+		eligibles, err = pool.getEligibleInputs(
+			store, startAddr, lastSeriesID, dustThreshold, int32(currentBlock),
+			eligibleInputMinConfirmations, totalAmount)
+	})
 	if err != nil {
 		t.Fatal("InputSelection failed:", err)
 	}
@@ -104,9 +107,13 @@ func TestGetEligibleInputsAmountLimit(t *testing.T) {
 	startAddr := TstNewWithdrawalAddress(t, pool, seriesID, 0, 0)
 	lastSeriesID := uint32(0)
 	currentBlock := int32(TstInputsBlock + eligibleInputMinConfirmations + 1)
-	eligibles, err := pool.getEligibleInputs(
-		store, startAddr, lastSeriesID, dustThreshold, int32(currentBlock),
-		eligibleInputMinConfirmations, amountTotal/2)
+	var eligibles []CreditInterface
+	var err error
+	TstRunWithManagerUnlocked(t, pool.Manager(), func() {
+		eligibles, err = pool.getEligibleInputs(
+			store, startAddr, lastSeriesID, dustThreshold, int32(currentBlock),
+			eligibleInputMinConfirmations, amountTotal/2)
+	})
 	if err != nil {
 		t.Fatal("InputSelection failed:", err)
 	}
@@ -117,6 +124,134 @@ func TestGetEligibleInputsAmountLimit(t *testing.T) {
 	if len(eligibles) != len(inputs)/2 {
 		t.Fatalf("Unexpected number of eligible inputs; got %d, want %d", len(eligibles),
 			len(inputs)/2)
+	}
+}
+
+func TestNextAddrWithVaryingHighestIndices(t *testing.T) {
+	tearDown, mgr, pool := TstCreatePool(t)
+	defer tearDown()
+
+	series := []TstSeriesDef{
+		{ReqSigs: 2, PubKeys: TstPubKeys[1:4], SeriesID: 0},
+	}
+	TstCreateSeries(t, pool, series)
+	stopSeriesID := uint32(1)
+
+	// Populate the used addr DB for branch 0 and indices ranging from 0 to 2.
+	TstEnsureUsedAddr(t, pool, 0, Branch(0), 2)
+
+	// Populate the used addr DB for branch 1 and indices ranging from 0 to 1.
+	TstEnsureUsedAddr(t, pool, 0, Branch(1), 1)
+
+	// Start with the address for branch==0, index==1.
+	addr := TstNewWithdrawalAddress(t, pool, 0, 0, 1)
+
+	var err error
+	// The first call to nextAddr() should give us the address for branch==1
+	// and index==1.
+	TstRunWithManagerUnlocked(t, mgr, func() {
+		addr, err = nextAddr(pool, addr.seriesID, addr.branch, addr.index, stopSeriesID)
+	})
+	if err != nil {
+		t.Fatalf("Failed to get next address: %v", err)
+	}
+	checkWithdrawalAddressMatches(t, addr, 0, Branch(1), 1)
+
+	// The next call should give us the address for branch==0, index==2 since
+	// there are no used addresses for branch==2.
+	TstRunWithManagerUnlocked(t, mgr, func() {
+		addr, err = nextAddr(pool, addr.seriesID, addr.branch, addr.index, stopSeriesID)
+	})
+	if err != nil {
+		t.Fatalf("Failed to get next address: %v", err)
+	}
+	checkWithdrawalAddressMatches(t, addr, 0, Branch(0), 2)
+
+	// Since the last addr for branch==1 was the one with index==1, a subsequent
+	// call will return nil.
+	TstRunWithManagerUnlocked(t, mgr, func() {
+		addr, err = nextAddr(pool, addr.seriesID, addr.branch, addr.index, stopSeriesID)
+	})
+	if err != nil {
+		t.Fatalf("Failed to get next address: %v", err)
+	}
+	if addr != nil {
+		t.Fatalf("Wrong next addr; got '%s', want 'nil'", addr.AddrIdentifier())
+	}
+}
+
+func TestNextAddr(t *testing.T) {
+	tearDown, mgr, pool := TstCreatePool(t)
+	defer tearDown()
+
+	series := []TstSeriesDef{
+		{ReqSigs: 2, PubKeys: TstPubKeys[1:4], SeriesID: 0},
+		{ReqSigs: 2, PubKeys: TstPubKeys[3:6], SeriesID: 1},
+	}
+	TstCreateSeries(t, pool, series)
+	stopSeriesID := uint32(2)
+
+	lastIdx := Index(10)
+	// Populate used addresses DB with entries for seriesID==0, branch==0..3,
+	// idx==0..10.
+	for _, i := range []int{0, 1, 2, 3} {
+		TstEnsureUsedAddr(t, pool, 0, Branch(i), lastIdx)
+	}
+	addr := TstNewWithdrawalAddress(t, pool, 0, 0, lastIdx-1)
+	var err error
+	// nextAddr() first increments just the branch, which ranges from 0 to 3
+	// here (because our series has 3 public keys).
+	for _, i := range []int{1, 2, 3} {
+		TstRunWithManagerUnlocked(t, mgr, func() {
+			addr, err = nextAddr(pool, addr.seriesID, addr.branch, addr.index, stopSeriesID)
+		})
+		if err != nil {
+			t.Fatalf("Failed to get next address: %v", err)
+		}
+		checkWithdrawalAddressMatches(t, addr, 0, Branch(i), lastIdx-1)
+	}
+
+	// The last nextAddr() above gave us the addr with branch=3,
+	// idx=lastIdx-1, so the next 4 calls should give us the addresses with
+	// branch=[0-3] and idx=lastIdx.
+	for _, i := range []int{0, 1, 2, 3} {
+		TstRunWithManagerUnlocked(t, mgr, func() {
+			addr, err = nextAddr(pool, addr.seriesID, addr.branch, addr.index, stopSeriesID)
+		})
+		if err != nil {
+			t.Fatalf("Failed to get next address: %v", err)
+		}
+		checkWithdrawalAddressMatches(t, addr, 0, Branch(i), lastIdx)
+	}
+
+	// Populate used addresses DB with entries for seriesID==1, branch==0..3,
+	// idx==0..10.
+	for _, i := range []int{0, 1, 2, 3} {
+		TstEnsureUsedAddr(t, pool, 1, Branch(i), lastIdx)
+	}
+	// Now we've gone through all the available branch/idx combinations, so
+	// we should move to the next series and start again with branch=0, idx=0.
+	for _, i := range []int{0, 1, 2, 3} {
+		TstRunWithManagerUnlocked(t, mgr, func() {
+			addr, err = nextAddr(pool, addr.seriesID, addr.branch, addr.index, stopSeriesID)
+		})
+		if err != nil {
+			t.Fatalf("Failed to get next address: %v", err)
+		}
+		checkWithdrawalAddressMatches(t, addr, 1, Branch(i), 0)
+	}
+
+	// Finally check that nextAddr() returns nil when we've reached the last
+	// available address before stopSeriesID.
+	addr = TstNewWithdrawalAddress(t, pool, 1, 3, lastIdx)
+	TstRunWithManagerUnlocked(t, mgr, func() {
+		addr, err = nextAddr(pool, addr.seriesID, addr.branch, addr.index, stopSeriesID)
+	})
+	if err != nil {
+		t.Fatalf("Failed to get next address: %v", err)
+	}
+	if addr != nil {
+		t.Fatalf("Wrong WithdrawalAddress; got %s, want nil", addr.AddrIdentifier())
 	}
 }
 
@@ -247,6 +382,9 @@ func (c *TstFakeCredit) OutPoint() *btcwire.OutPoint {
 func TstNewFakeCredit(t *testing.T, pool *Pool, series uint32, index Index, branch Branch, txSha []byte, outputIdx int) *TstFakeCredit {
 	var hash btcwire.ShaHash
 	copy(hash[:], txSha)
+	// Ensure the address defined by the given series/branch/index is present on
+	// the set of used addresses as that's a requirement of WithdrawalAddress.
+	TstEnsureUsedAddr(t, pool, series, branch, index)
 	addr := TstNewWithdrawalAddress(t, pool, series, branch, index)
 	return &TstFakeCredit{
 		addr:        *addr,
@@ -293,4 +431,17 @@ func getPKScriptsForAddressRange(t *testing.T, pool *Pool, seriesID uint32, star
 		}
 	}
 	return pkScripts
+}
+
+func checkWithdrawalAddressMatches(
+	t *testing.T, addr *WithdrawalAddress, seriesID uint32, branch Branch, index Index) {
+	if addr.SeriesID() != seriesID {
+		t.Fatalf("Wrong seriesID; got %d, want %d", addr.SeriesID(), seriesID)
+	}
+	if addr.Branch() != branch {
+		t.Fatalf("Wrong branch; got %d, want %d", addr.Branch(), branch)
+	}
+	if addr.Index() != index {
+		t.Fatalf("Wrong index; got %d, want %d", addr.Index(), index)
+	}
 }

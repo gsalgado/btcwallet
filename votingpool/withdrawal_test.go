@@ -45,17 +45,19 @@ func TestStartWithdrawal(t *testing.T) {
 		vp.TstNewOutputRequest(t, 1, address1, 4e6, mgr.Net()),
 		vp.TstNewOutputRequest(t, 2, address2, 1e6, mgr.Net()),
 	}
-	changeStart, err := pool.ChangeAddress(def.SeriesID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	changeStart := vp.TstNewChangeAddress(t, pool, def.SeriesID, 0)
 
 	startAddr := vp.TstNewWithdrawalAddress(t, pool, def.SeriesID, 0, 0)
 	lastSeriesID := def.SeriesID
 	dustThreshold := btcutil.Amount(1e4)
 	currentBlock := int32(vp.TstInputsBlock + vp.TstEligibleInputMinConfirmations + 1)
-	status, sigs, err := pool.StartWithdrawal(
-		0, requests, startAddr, lastSeriesID, changeStart, store, currentBlock, dustThreshold)
+	var status *vp.WithdrawalStatus
+	var sigs map[string]vp.TxSigs
+	var err error
+	vp.TstRunWithManagerUnlocked(t, mgr, func() {
+		status, sigs, err = pool.StartWithdrawal(
+			0, requests, startAddr, lastSeriesID, changeStart, store, currentBlock, dustThreshold)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,14 +73,15 @@ func TestStartWithdrawal(t *testing.T) {
 	txSigs := sigs[ntxid]
 
 	// Finally we use SignTx() to construct the SignatureScripts (using the raw
-	// signatures).  Must unlock the manager first as signing involves looking
-	// up the redeem script, which is stored encrypted.
-	vp.TstUnlockManager(t, mgr)
+	// signatures).  Must unlock the manager as signing involves looking up the
+	// redeem script, which is stored encrypted.
 	sha, _ := btcwire.NewShaHashFromStr(ntxid)
 	tx := store.UnminedTx(sha).MsgTx()
-	if err = vp.SignTx(tx, txSigs, mgr, store); err != nil {
-		t.Fatal(err)
-	}
+	vp.TstRunWithManagerUnlocked(t, mgr, func() {
+		if err = vp.SignTx(tx, txSigs, mgr, store); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func checkWithdrawalOutputs(

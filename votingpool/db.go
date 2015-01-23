@@ -28,7 +28,7 @@ import (
 // TODO: Rename votingPoolID to poolID everywhere in this file.
 
 // These constants define the serialized length for a given encrypted extended
-//  public or private key.
+// public or private key.
 const (
 	// We can calculate the encrypted extended key length this way:
 	// snacl.Overhead == overhead for encrypting (16)
@@ -55,6 +55,61 @@ type dbSeriesRow struct {
 	reqSigs           uint32
 	pubKeysEncrypted  [][]byte
 	privKeysEncrypted [][]byte
+}
+
+// getUsedAddrBucketID returns the used addresses bucket ID for the given pool,
+// series and branch. It has the form poolID:seriesID:branch.
+func getUsedAddrBucketID(poolID []byte, seriesID uint32, branch Branch) []byte {
+	return bytes.Join(
+		[][]byte{poolID, uint32ToBytes(seriesID), uint32ToBytes(uint32(branch))},
+		[]byte(":"))
+}
+
+// putUsedAddrHash adds an entry (key==index, value==encryptedHash) to the used
+// addresses bucket of the given pool, series and branch.
+func putUsedAddrHash(tx walletdb.Tx, poolID []byte, seriesID uint32, branch Branch,
+	index Index, encryptedHash []byte) error {
+
+	bucket, err := tx.RootBucket().CreateBucketIfNotExists(
+		getUsedAddrBucketID(poolID, seriesID, branch))
+	if err != nil {
+		return err
+	}
+	return bucket.Put(uint32ToBytes(uint32(index)), encryptedHash)
+}
+
+// getUsedAddrHash returns the addr hash with the given index from the used
+// addresses bucket of the given pool, series and branch.
+func getUsedAddrHash(
+	tx walletdb.Tx, poolID []byte, seriesID uint32, branch Branch, index Index) []byte {
+
+	bucket := tx.RootBucket().Bucket(getUsedAddrBucketID(poolID, seriesID, branch))
+	if bucket == nil {
+		return nil
+	}
+	return bucket.Get(uint32ToBytes(uint32(index)))
+}
+
+// getMaxUsedIdx returns the highest used index from the used addresses bucket
+// of the given pool, series and branch.
+func getMaxUsedIdx(tx walletdb.Tx, poolID []byte, seriesID uint32, branch Branch) (Index, error) {
+	maxIdx := Index(0)
+	bucket := tx.RootBucket().Bucket(getUsedAddrBucketID(poolID, seriesID, branch))
+	if bucket == nil {
+		return maxIdx, nil
+	}
+	err := bucket.ForEach(
+		func(k, v []byte) error {
+			idx := Index(bytesToUint32(k))
+			if idx > maxIdx {
+				maxIdx = idx
+			}
+			return nil
+		})
+	if err != nil {
+		return Index(0), err
+	}
+	return maxIdx, nil
 }
 
 // putPool stores a voting pool in the database, creating a bucket named

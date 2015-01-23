@@ -167,18 +167,82 @@ func (p *Pool) getEligibleInputs(
 			sort.Sort(byAddress(eligibles))
 			inputs = append(inputs, eligibles...)
 		}
-		nextAddr, err := addr.NextBefore(lastSeriesID + 1)
+		next, err := nextAddr(p, addr.seriesID, addr.branch, addr.index, lastSeriesID+1)
 		if err != nil {
 			return nil, newError(
 				ErrInputSelection, "failed to get next withdrawal address", err)
-		} else if nextAddr == nil {
+		} else if next == nil {
 			log.Debugf(
 				"getEligibleInputs: reached last addr (%s), stopping", addr.AddrIdentifier())
 			finished = true
 		}
-		addr = nextAddr
+		addr = next
 	}
 	return inputs, nil
+}
+
+// nextAddr returns the next WithdrawalAddress according to the input selection
+// rules: http://opentransactions.org/wiki/index.php/Input_Selection_Algorithm_(voting_pools)
+// It returns nil if the new address' seriesID is >= stopSeriesID.
+func nextAddr(p *Pool, seriesID uint32, branch Branch, index Index, stopSeriesID uint32) (
+	*WithdrawalAddress, error) {
+	branch++
+	series := p.GetSeries(seriesID)
+	if series == nil {
+		return nil, newError(ErrSeriesNotExists, fmt.Sprintf("unknown seriesID: %d", seriesID), nil)
+	}
+	if int(branch) > len(series.publicKeys) {
+		highestIdx, err := p.highestUsedSeriesIndex(seriesID)
+		if err != nil {
+			return nil, err
+		}
+		if index > highestIdx {
+			seriesID++
+			log.Debugf("nextAddr(): reached last branch (%d) and highest used index (%d), "+
+				"moving on to next series (%d)", branch, index, seriesID)
+			index = 0
+		} else {
+			index++
+		}
+		branch = 0
+	}
+
+	if seriesID >= stopSeriesID {
+		return nil, nil
+	}
+
+	addr, err := p.WithdrawalAddress(seriesID, branch, index)
+	if err != nil && err.(Error).ErrorCode == ErrWithdrawFromUnusedAddr {
+		// The used indices will vary between branches so sometimes we'll try to
+		// get a WithdrawalAddress that hasn't been used before, and in such
+		// cases we just need to move on to the next one.
+		log.Debugf("nextAddr(): skipping addr (series #%d, branch #%d, index #%d) as it hasn't "+
+			"been used before", seriesID, branch, index)
+		return nextAddr(p, seriesID, branch, index, stopSeriesID)
+	}
+	return addr, err
+}
+
+// highestUsedSeriesIndex returns the highest index among all of this Pool's
+// used addresses for the given seriesID. It returns 0 if there are no used
+// addresses with the given seriesID.
+func (p *Pool) highestUsedSeriesIndex(seriesID uint32) (Index, error) {
+	maxIdx := Index(0)
+	series := p.GetSeries(seriesID)
+	if series == nil {
+		return maxIdx,
+			newError(ErrSeriesNotExists, fmt.Sprintf("unknown seriesID: %d", seriesID), nil)
+	}
+	for i := range series.publicKeys {
+		idx, err := p.highestUsedIndexFor(seriesID, Branch(i))
+		if err != nil {
+			return Index(0), err
+		}
+		if idx > maxIdx {
+			maxIdx = idx
+		}
+	}
+	return maxIdx, nil
 }
 
 // groupCreditsByAddr converts a slice of credits to a map from the
@@ -211,14 +275,14 @@ func groupCreditsByAddr(credits []txstore.Credit, net *btcnet.Params) (map[strin
 // isCreditEligible tests a given credit for eligibilty with respect
 // to number of confirmations, the dust threshold and that it is not
 // the charter output.
-func (vp *Pool) isCreditEligible(c txstore.Credit, minConf int, chainHeight int32, dustThreshold btcutil.Amount) bool {
+func (p *Pool) isCreditEligible(c txstore.Credit, minConf int, chainHeight int32, dustThreshold btcutil.Amount) bool {
 	if c.Amount() < dustThreshold {
 		return false
 	}
 	if !c.Confirmed(minConf, chainHeight) {
 		return false
 	}
-	if vp.isCharterOutput(c) {
+	if p.isCharterOutput(c) {
 		return false
 	}
 
@@ -227,6 +291,6 @@ func (vp *Pool) isCreditEligible(c txstore.Credit, minConf int, chainHeight int3
 
 // isCharterOutput - TODO: In order to determine this, we need the txid
 // and the output index of the current charter output, which we don't have yet.
-func (vp *Pool) isCharterOutput(c txstore.Credit) bool {
+func (p *Pool) isCharterOutput(c txstore.Credit) bool {
 	return false
 }

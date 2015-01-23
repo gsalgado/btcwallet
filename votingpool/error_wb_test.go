@@ -58,6 +58,8 @@ func TestErrorCodeStringer(t *testing.T) {
 		{ErrPreconditionNotMet, "ErrPreconditionNotMet"},
 		{ErrTxSigning, "ErrTxSigning"},
 		{ErrTxOutNotFound, "ErrTxOutNotFound"},
+		{ErrInvalidScriptHash, "ErrInvalidScriptHash"},
+		{ErrWithdrawFromUnusedAddr, "ErrWithdrawFromUnusedAddr"},
 	}
 
 	if int(lastErr) != len(tests) {
