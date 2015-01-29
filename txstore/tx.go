@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -991,17 +990,6 @@ func (s *Store) UnminedDebitTxs() []*btcutil.Tx {
 	return unmined
 }
 
-// UnminedTx returns the wallet transaction with the given hash that
-// is not known to have been mined in a block.
-func (s *Store) UnminedTx(sha *btcwire.ShaHash) *btcutil.Tx {
-	for _, t := range s.UnminedDebitTxs() {
-		if *sha == *t.Sha() {
-			return t
-		}
-	}
-	return nil
-}
-
 // removeDoubleSpends checks for any unconfirmed transactions which would
 // introduce a double spend if tx was added to the store (either as a confirmed
 // or unconfirmed transaction).  If one is found, it and all transactions which
@@ -1087,6 +1075,25 @@ func (s *Store) removeConflict(r *txRecord) error {
 	return nil
 }
 
+// UnconfirmedSpent returns the TxOut for the given OutPoint, provided it is in
+// an unconfirmed transaction.
+func (s *Store) UnconfirmedSpent(outpoint btcwire.OutPoint) (*btcwire.TxOut, error) {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+
+	for op, key := range s.unconfirmed.spentBlockOutPointKeys {
+		if outpoint == op {
+			r, err := s.lookupBlockTx(key.BlockTxKey)
+			if err != nil {
+				return nil, err
+			}
+			return r.Tx().MsgTx().TxOut[outpoint.Index], nil
+		}
+	}
+	return nil, errors.New(
+		fmt.Sprintf("no unconfirmed spent TxOut found for outpoint %v", outpoint))
+}
+
 // UnspentOutputs returns all unspent received transaction outputs.
 // The order is undefined.
 func (s *Store) UnspentOutputs() ([]Credit, error) {
@@ -1094,23 +1101,6 @@ func (s *Store) UnspentOutputs() ([]Credit, error) {
 	defer s.mtx.RUnlock()
 
 	return s.unspentOutputs()
-}
-
-// UnconfirmedSpent returns the TxOut for the given OutPoint, spent by an
-// unconfirmed transaction.
-// TODO: Test this!
-func (s *Store) UnconfirmedSpent(outpoint btcwire.OutPoint) (*btcwire.TxOut, error) {
-	for op, key := range s.unconfirmed.spentBlockOutPointKeys {
-		if reflect.DeepEqual(outpoint, op) {
-			r, err := s.lookupBlockTx(key.BlockTxKey)
-			if err != nil {
-				return nil, fmt.Errorf("BlockOutputKey not found: %v", err)
-			}
-			return r.Tx().MsgTx().TxOut[outpoint.Index], nil
-		}
-	}
-	return nil, errors.New(
-		fmt.Sprintf("outpoint not found in unconfirmed transactions: %v", outpoint))
 }
 
 func (s *Store) unspentOutputs() ([]Credit, error) {

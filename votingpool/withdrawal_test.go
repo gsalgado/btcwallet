@@ -22,6 +22,7 @@ import (
 
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/btcsuite/btcwallet/txstore"
 	vp "github.com/btcsuite/btcwallet/votingpool"
 	"github.com/btcsuite/btcwire"
 )
@@ -76,7 +77,7 @@ func TestStartWithdrawal(t *testing.T) {
 	// signatures).  Must unlock the manager as signing involves looking up the
 	// redeem script, which is stored encrypted.
 	sha, _ := btcwire.NewShaHashFromStr(ntxid)
-	tx := store.UnminedTx(sha).MsgTx()
+	tx := getUnminedTx(store, sha).MsgTx()
 	vp.TstRunWithManagerUnlocked(t, mgr, func() {
 		if err = vp.SignTx(tx, txSigs, mgr, store); err != nil {
 			t.Fatal(err)
@@ -116,4 +117,13 @@ func checkWithdrawalOutputs(
 			t.Fatalf("Unexpected amount for output %v; got %v, want %v", output, gotAmount, amount)
 		}
 	}
+}
+
+func getUnminedTx(store *txstore.Store, sha *btcwire.ShaHash) *btcutil.Tx {
+	for _, t := range store.UnminedDebitTxs() {
+		if *sha == *t.Sha() {
+			return t
+		}
+	}
+	return nil
 }

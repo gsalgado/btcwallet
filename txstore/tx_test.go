@@ -547,6 +547,45 @@ func TestInsertsCreditsDebitsRollbacks(t *testing.T) {
 	}
 }
 
+func TestUnconfirmedSpent(t *testing.T) {
+	s := New("/tmp/tx.bin")
+
+	// Insert transaction and credit which will be spent.
+	r, err := s.InsertTx(TstRecvTx, TstRecvTxBlockDetails)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.AddCredit(0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert unconfirmed transaction which spends the above credit.
+	TstSpendingTx.SetIndex(TstSignedTxIndex)
+	blockDetails := &Block{
+		Height: -1,
+		Hash:   *TstSignedTxBlockHash,
+		Time:   TstSignedTxBlockDetails.Time,
+	}
+	r2, err := s.InsertTx(TstSpendingTx, blockDetails)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = r2.AddDebits()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	op := btcwire.NewOutPoint(TstRecvTx.Sha(), 0)
+	txout, err := s.UnconfirmedSpent(*op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if txout != r.Tx().MsgTx().TxOut[0] {
+		t.Fatal("Wrong txout; got %v, want %v", txout, r.Tx().MsgTx().TxOut[0])
+	}
+}
+
 func TestFindingSpentCredits(t *testing.T) {
 	s := New("/tmp/tx.bin")
 
