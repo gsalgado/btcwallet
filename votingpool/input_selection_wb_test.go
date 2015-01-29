@@ -58,7 +58,7 @@ func TestGetEligibleInputs(t *testing.T) {
 	startAddr := TstNewWithdrawalAddress(t, pool, 0, 0, 0)
 	lastSeriesID := uint32(1)
 	currentBlock := int32(TstInputsBlock + eligibleInputMinConfirmations + 1)
-	var eligibles []CreditInterface
+	var eligibles []Credit
 	var err error
 	TstRunWithManagerUnlocked(t, pool.Manager(), func() {
 		eligibles, err = pool.getEligibleInputs(
@@ -107,7 +107,7 @@ func TestGetEligibleInputsAmountLimit(t *testing.T) {
 	startAddr := TstNewWithdrawalAddress(t, pool, seriesID, 0, 0)
 	lastSeriesID := uint32(0)
 	currentBlock := int32(TstInputsBlock + eligibleInputMinConfirmations + 1)
-	var eligibles []CreditInterface
+	var eligibles []Credit
 	var err error
 	TstRunWithManagerUnlocked(t, pool.Manager(), func() {
 		eligibles, err = pool.getEligibleInputs(
@@ -315,7 +315,7 @@ func TestNonEligibleInputsAreNotEligible(t *testing.T) {
 
 }
 
-func TestCreditInterfaceSortingByAddress(t *testing.T) {
+func TestCreditSortingByAddress(t *testing.T) {
 	teardown, _, pool := TstCreatePool(t)
 	defer teardown()
 
@@ -333,13 +333,13 @@ func TestCreditInterfaceSortingByAddress(t *testing.T) {
 	c5 := TstNewFakeCredit(t, pool, 0, 1, 0, []byte{0x00, 0x00}, 0)
 	c6 := TstNewFakeCredit(t, pool, 1, 0, 0, []byte{0x00, 0x00}, 0)
 
-	randomCredits := [][]CreditInterface{
-		[]CreditInterface{c6, c5, c4, c3, c2, c1, c0},
-		[]CreditInterface{c2, c1, c0, c6, c5, c4, c3},
-		[]CreditInterface{c6, c4, c5, c2, c3, c0, c1},
+	randomCredits := [][]Credit{
+		[]Credit{c6, c5, c4, c3, c2, c1, c0},
+		[]Credit{c2, c1, c0, c6, c5, c4, c3},
+		[]Credit{c6, c4, c5, c2, c3, c0, c1},
 	}
 
-	want := []CreditInterface{c0, c1, c2, c3, c4, c5, c6}
+	want := []Credit{c0, c1, c2, c3, c4, c5, c6}
 
 	for _, random := range randomCredits {
 		sort.Sort(byAddress(random))
@@ -359,7 +359,7 @@ func TestCreditInterfaceSortingByAddress(t *testing.T) {
 	}
 }
 
-// TstFakeCredit is a structure implementing the CreditInterface used to test
+// TstFakeCredit is a structure implementing the Credit interface used to test
 // the byAddress sorting. It exists because to test the sorting properly we need
 // to be able to set the Credit's TxSha and OutputIndex.
 type TstFakeCredit struct {
@@ -394,8 +394,8 @@ func TstNewFakeCredit(t *testing.T, pool *Pool, series uint32, index Index, bran
 }
 
 // Compile time check that TstFakeCredit implements the
-// CreditInterface.
-var _ CreditInterface = (*TstFakeCredit)(nil)
+// Credit interface.
+var _ Credit = (*TstFakeCredit)(nil)
 
 func checkUniqueness(t *testing.T, credits byAddress) {
 	type uniq struct {

@@ -139,7 +139,7 @@ func TestSplitLastOutputNoOutputs(t *testing.T) {
 	tearDown, pool, store := TstCreatePoolAndTxStore(t)
 	defer tearDown()
 
-	w := newWithdrawal(0, []OutputRequest{}, []CreditInterface{}, nil)
+	w := newWithdrawal(0, []OutputRequest{}, []Credit{}, nil)
 	w.current = createWithdrawalTx(t, pool, store, []int64{}, []int64{})
 
 	err := w.splitLastOutput()
@@ -1097,7 +1097,7 @@ func checkMsgTxOutputs(t *testing.T, msgtx *btcwire.MsgTx, requests []OutputRequ
 }
 
 // checkTxInputs ensures that the tx.inputs match the given inputs.
-func checkTxInputs(t *testing.T, tx *withdrawalTx, inputs []CreditInterface) {
+func checkTxInputs(t *testing.T, tx *withdrawalTx, inputs []Credit) {
 	if len(tx.inputs) != len(inputs) {
 		t.Fatalf("Wrong number of inputs in tx; got %d, want %d", len(tx.inputs), len(inputs))
 	}
@@ -1111,7 +1111,8 @@ func checkTxInputs(t *testing.T, tx *withdrawalTx, inputs []CreditInterface) {
 // signTxAndValidate will construct the signature script for each input of the given
 // transaction (using the given raw signatures and the pkScripts from credits) and execute
 // those scripts to validate them.
-func signTxAndValidate(t *testing.T, mgr *waddrmgr.Manager, tx *btcwire.MsgTx, txSigs TxSigs, credits []CreditInterface) {
+func signTxAndValidate(
+	t *testing.T, mgr *waddrmgr.Manager, tx *btcwire.MsgTx, txSigs TxSigs, credits []Credit) {
 	for i := range tx.TxIn {
 		pkScript := credits[i].TxOut().PkScript
 		TstRunWithManagerUnlocked(t, mgr, func() {
@@ -1128,8 +1129,9 @@ func compareMsgTxAndWithdrawalTxInputs(t *testing.T, msgtx *btcwire.MsgTx, tx *w
 	}
 
 	for i, txin := range msgtx.TxIn {
-		if txin.PreviousOutPoint != *tx.inputs[i].OutPoint() {
-			t.Fatalf("Wrong output; got %v expected %v", txin.PreviousOutPoint, *tx.inputs[i].OutPoint())
+		outpoint := tx.inputs[i].OutPoint()
+		if txin.PreviousOutPoint != *outpoint {
+			t.Fatalf("Wrong outpoint; got %v expected %v", txin.PreviousOutPoint, *outpoint)
 		}
 	}
 }

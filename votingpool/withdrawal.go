@@ -195,7 +195,7 @@ type withdrawal struct {
 	changeStart     *ChangeAddress
 	transactions    []*withdrawalTx
 	pendingRequests []OutputRequest
-	eligibleInputs  []CreditInterface
+	eligibleInputs  []Credit
 	current         *withdrawalTx
 	// newWithdrawalTx is a member of the structure so it can be replaced for
 	// testing purposes.
@@ -226,7 +226,7 @@ func (o *withdrawalTxOut) pkScript() []byte {
 
 // withdrawalTx represents a transaction constructed by the withdrawal process.
 type withdrawalTx struct {
-	inputs  []CreditInterface
+	inputs  []Credit
 	outputs []*withdrawalTxOut
 	fee     btcutil.Amount
 
@@ -318,13 +318,13 @@ func (tx *withdrawalTx) removeOutput() *withdrawalTxOut {
 }
 
 // addInput adds a new input to this transaction.
-func (tx *withdrawalTx) addInput(input CreditInterface) {
+func (tx *withdrawalTx) addInput(input Credit) {
 	log.Debugf("Added tx input with amount %v", input.Amount())
 	tx.inputs = append(tx.inputs, input)
 }
 
 // removeInput removes the last added input and returns it.
-func (tx *withdrawalTx) removeInput() CreditInterface {
+func (tx *withdrawalTx) removeInput() Credit {
 	removed := tx.inputs[len(tx.inputs)-1]
 	tx.inputs = tx.inputs[:len(tx.inputs)-1]
 	log.Debugf("Removed tx input with amount %v", removed.Amount())
@@ -357,7 +357,7 @@ func (tx *withdrawalTx) addChange(pkScript []byte) bool {
 //
 // The tx needs to have two or more outputs. The case with only one output must
 // be handled separately (by the split output procedure).
-func (tx *withdrawalTx) rollBackLastOutput() ([]CreditInterface, *withdrawalTxOut, error) {
+func (tx *withdrawalTx) rollBackLastOutput() ([]Credit, *withdrawalTxOut, error) {
 	// Check precondition: At least two outputs are required in the transaction.
 	if len(tx.outputs) < 2 {
 		str := fmt.Sprintf("at least two outputs expected; got %d", len(tx.outputs))
@@ -366,7 +366,7 @@ func (tx *withdrawalTx) rollBackLastOutput() ([]CreditInterface, *withdrawalTxOu
 
 	removedOutput := tx.removeOutput()
 
-	var removedInputs []CreditInterface
+	var removedInputs []Credit
 	// Continue until sum(in) < sum(out) + fee
 	for tx.inputTotal() >= tx.outputTotal()+tx.calculateFee() {
 		removedInputs = append(removedInputs, tx.removeInput())
@@ -378,7 +378,7 @@ func (tx *withdrawalTx) rollBackLastOutput() ([]CreditInterface, *withdrawalTxOu
 	return removedInputs, removedOutput, nil
 }
 
-func newWithdrawal(roundID uint32, requests []OutputRequest, inputs []CreditInterface,
+func newWithdrawal(roundID uint32, requests []OutputRequest, inputs []Credit,
 	changeStart *ChangeAddress) *withdrawal {
 	outputs := make(map[string]*WithdrawalOutput, len(requests))
 	for _, request := range requests {
@@ -492,15 +492,15 @@ func (w *withdrawal) pushRequest(request OutputRequest) {
 
 // popInput removes and returns the first input from the stack of eligible
 // inputs.
-func (w *withdrawal) popInput() CreditInterface {
+func (w *withdrawal) popInput() Credit {
 	input := w.eligibleInputs[0]
 	w.eligibleInputs = w.eligibleInputs[1:]
 	return input
 }
 
 // pushInput adds a new input to the top of the stack of eligible inputs.
-func (w *withdrawal) pushInput(input CreditInterface) {
-	w.eligibleInputs = append([]CreditInterface{input}, w.eligibleInputs...)
+func (w *withdrawal) pushInput(input Credit) {
+	w.eligibleInputs = append([]Credit{input}, w.eligibleInputs...)
 }
 
 // If this returns it means we have added an output and the necessary inputs to fulfil that

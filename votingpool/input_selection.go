@@ -29,9 +29,9 @@ import (
 
 const eligibleInputMinConfirmations = 100
 
-// CreditInterface is an abstraction over credits used in a voting
-// pool.
-type CreditInterface interface {
+// Credit is an abstraction over txstore.Credit used in the construction of
+// voting pool withdrawal transactions.
+type Credit interface {
 	fmt.Stringer
 	TxSha() *btcwire.ShaHash
 	OutputIndex() uint32
@@ -41,43 +41,43 @@ type CreditInterface interface {
 	TxOut() *btcwire.TxOut
 }
 
-// Credit implements the CreditInterface.
-type Credit struct {
+// credit implements the Credit interface.
+type credit struct {
 	txstore.Credit
 	addr WithdrawalAddress
 }
 
-// NewCredit initialises a new Credit.
-func NewCredit(credit txstore.Credit, addr WithdrawalAddress) *Credit {
-	return &Credit{Credit: credit, addr: addr}
+// newCredit initialises a new credit.
+func newCredit(c txstore.Credit, addr WithdrawalAddress) *credit {
+	return &credit{Credit: c, addr: addr}
 }
 
-func (c *Credit) String() string {
-	return fmt.Sprintf("Credit of %v to %v", c.Amount(), c.Address())
+func (c *credit) String() string {
+	return fmt.Sprintf("credit of %v to %v", c.Amount(), c.Address())
 }
 
 // TxSha returns the sha hash of the underlying transaction.
-func (c *Credit) TxSha() *btcwire.ShaHash {
+func (c *credit) TxSha() *btcwire.ShaHash {
 	return c.Credit.TxRecord.Tx().Sha()
 }
 
 // OutputIndex returns the outputindex of the ouput in the underlying
 // transaction.
-func (c *Credit) OutputIndex() uint32 {
+func (c *credit) OutputIndex() uint32 {
 	return c.Credit.OutputIndex
 }
 
 // Address returns the voting pool address.
-func (c *Credit) Address() WithdrawalAddress {
+func (c *credit) Address() WithdrawalAddress {
 	return c.addr
 }
 
-// Compile time check that Credit implements CreditInterface.
-var _ CreditInterface = (*Credit)(nil)
+// Compile time check that credit implements Credit interface.
+var _ Credit = (*credit)(nil)
 
 // byAddress defines the methods needed to satisify sort.Interface to sort a
-// slice of CreditInterfaces by their address.
-type byAddress []CreditInterface
+// slice of Credits by their address.
+type byAddress []Credit
 
 func (c byAddress) Len() int      { return len(c) }
 func (c byAddress) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
@@ -130,7 +130,7 @@ func (p *Pool) getEligibleInputs(
 	dustThreshold btcutil.Amount,
 	chainHeight int32,
 	minConf int,
-	limit btcutil.Amount) ([]CreditInterface, error) {
+	limit btcutil.Amount) ([]Credit, error) {
 
 	if p.GetSeries(lastSeriesID) == nil {
 		str := fmt.Sprintf("lastSeriesID (%d) does not exist", lastSeriesID)
@@ -144,17 +144,17 @@ func (p *Pool) getEligibleInputs(
 	if err != nil {
 		return nil, newError(ErrInputSelection, "grouping credits by address failed", err)
 	}
-	var inputs []CreditInterface
+	var inputs []Credit
 	finished := false
 	addr := startAddress
 	totalAmount := btcutil.Amount(0)
 	for !finished {
 		log.Debugf("Looking for eligible inputs at address %v", addr.AddrIdentifier())
 		if candidates, ok := addrMap[addr.Addr().EncodeAddress()]; ok {
-			var eligibles []CreditInterface
+			var eligibles []Credit
 			for _, c := range candidates {
 				if p.isCreditEligible(c, minConf, chainHeight, dustThreshold) {
-					eligibles = append(eligibles, NewCredit(c, *addr))
+					eligibles = append(eligibles, newCredit(c, *addr))
 					totalAmount += c.Amount()
 					if totalAmount >= limit {
 						log.Debugf("getEligibleInputs: reached amount limit (%d), stopping", limit)

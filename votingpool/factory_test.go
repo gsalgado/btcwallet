@@ -221,7 +221,7 @@ func TstCreatePoolAndTxStore(t *testing.T) (tearDown func(), pool *Pool, store *
 // Series will use a 2-of-3 configuration and will be empowered with all of its
 // private keys.
 func TstCreateCredits(
-	t *testing.T, pool *Pool, amounts []int64, store *txstore.Store) (uint32, []CreditInterface) {
+	t *testing.T, pool *Pool, amounts []int64, store *txstore.Store) (uint32, []Credit) {
 	masters := []*hdkeychain.ExtendedKey{
 		TstCreateMasterKey(t, bytes.Repeat(uint32ToBytes(getUniqueID()), 4)),
 		TstCreateMasterKey(t, bytes.Repeat(uint32ToBytes(getUniqueID()), 4)),
@@ -235,13 +235,13 @@ func TstCreateCredits(
 // TstCreateCreditsOnSeries creates a slice of credits locked to the given
 // series' address with branch==1 and index==0.
 func TstCreateCreditsOnSeries(t *testing.T, pool *Pool, seriesID uint32, amounts []int64,
-	store *txstore.Store) []CreditInterface {
+	store *txstore.Store) []Credit {
 	branch := Branch(1)
 	idx := Index(0)
 	pkScript := TstCreatePkScript(t, pool, seriesID, branch, idx)
-	eligible := make([]CreditInterface, len(amounts))
+	eligible := make([]Credit, len(amounts))
 	for i, credit := range TstCreateInputs(t, store, pkScript, amounts) {
-		eligible[i] = NewCredit(credit, *TstNewWithdrawalAddress(t, pool, seriesID, branch, idx))
+		eligible[i] = newCredit(credit, *TstNewWithdrawalAddress(t, pool, seriesID, branch, idx))
 	}
 	return eligible
 }
