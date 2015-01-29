@@ -60,6 +60,7 @@ func TestErrorCodeStringer(t *testing.T) {
 		{ErrTxOutNotFound, "ErrTxOutNotFound"},
 		{ErrInvalidScriptHash, "ErrInvalidScriptHash"},
 		{ErrWithdrawFromUnusedAddr, "ErrWithdrawFromUnusedAddr"},
+		{ErrWithdrawalTxStorage, "ErrWithdrawalTxStorage"},
 	}
 
 	if int(lastErr) != len(tests) {

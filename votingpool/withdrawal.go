@@ -437,18 +437,15 @@ func (p *Pool) StartWithdrawal(
 // and adds them to the txStore and writes it to disk. The credits used in each
 // transaction are removed from the store's unspent list, and if a transaction
 // includes a change output, it is added to the store as a credit.
-//
-// TODO: Wrap the errors we catch here in a custom votingpool.Error before
-// returning.
 func storeTransactions(txStore *txstore.Store, transactions []*withdrawalTx) error {
 	for _, tx := range transactions {
 		msgtx := tx.toMsgTx()
 		txr, err := txStore.InsertTx(btcutil.NewTx(msgtx), nil)
 		if err != nil {
-			return err
+			return newError(ErrWithdrawalTxStorage, "error adding tx to store", err)
 		}
 		if _, err = txr.AddDebits(); err != nil {
-			return err
+			return newError(ErrWithdrawalTxStorage, "error adding tx debits to store", err)
 		}
 		if tx.hasChange() {
 			idx, err := getTxOutIndex(tx.changeOutput, msgtx)
@@ -456,13 +453,13 @@ func storeTransactions(txStore *txstore.Store, transactions []*withdrawalTx) err
 				return err
 			}
 			if _, err = txr.AddCredit(idx, true); err != nil {
-				return err
+				return newError(ErrWithdrawalTxStorage, "error adding tx credits to store", err)
 			}
 		}
 	}
 	txStore.MarkDirty()
 	if err := txStore.WriteIfDirty(); err != nil {
-		return err
+		return newError(ErrWithdrawalTxStorage, "error writing tx store to disk", err)
 	}
 	return nil
 }

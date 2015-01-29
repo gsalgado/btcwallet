@@ -144,6 +144,10 @@ const (
 	// an address which has not been used before.
 	ErrWithdrawFromUnusedAddr
 
+	// ErrWithdrawalTxStorage indicates an error when storing withdrawal
+	// transactions.
+	ErrWithdrawalTxStorage
+
 	// lastErr is used for testing, making it possible to iterate over
 	// the error codes in order to check that they all have proper
 	// translations in errorCodeStrings.
@@ -184,6 +188,7 @@ var errorCodeStrings = map[ErrorCode]string{
 	ErrTxOutNotFound:             "ErrTxOutNotFound",
 	ErrInvalidScriptHash:         "ErrInvalidScriptHash",
 	ErrWithdrawFromUnusedAddr:    "ErrWithdrawFromUnusedAddr",
+	ErrWithdrawalTxStorage:       "ErrWithdrawalTxStorage",
 }
 
 // String returns the ErrorCode as a human-readable name.
