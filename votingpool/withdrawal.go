@@ -19,6 +19,7 @@ package votingpool
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/btcsuite/btcscript"
@@ -580,7 +581,7 @@ func (w *withdrawal) finalizeCurrentTx() error {
 	}
 	if tx.addChange(pkScript) {
 		var err error
-		w.changeStart, err = w.changeStart.Next()
+		w.changeStart, err = nextChangeAddr(w.changeStart)
 		if err != nil {
 			return newError(
 				ErrWithdrawalProcessing, "failed to get next change address", err)
@@ -914,4 +915,16 @@ func calculateSize(tx *withdrawalTx) int {
 		txin.SignatureScript = sigScript.Script()
 	}
 	return msgtx.SerializeSize()
+}
+
+func nextChangeAddr(a *ChangeAddress) (*ChangeAddress, error) {
+	index := a.index
+	seriesID := a.seriesID
+	if index == math.MaxUint32 {
+		index = 0
+		seriesID++
+	} else {
+		index++
+	}
+	return a.pool.ChangeAddress(seriesID, index)
 }

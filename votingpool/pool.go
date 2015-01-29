@@ -581,14 +581,20 @@ func (p *Pool) DepositScript(seriesID uint32, branch Branch, index Index) ([]byt
 	return script, nil
 }
 
+// ChangeAddress returns a new votingpool address for the given seriesID and
+// index, on the 0th branch (which is reserved for change addresses). The series
+// with the given ID must be active.
 func (p *Pool) ChangeAddress(seriesID uint32, index Index) (*ChangeAddress, error) {
 	series := p.GetSeries(seriesID)
-	if series != nil && !series.active {
+	if series == nil {
+		return nil, newError(
+			ErrSeriesNotExists, fmt.Sprintf("series %d does not exist", seriesID), nil)
+	}
+	if !series.active {
 		str := fmt.Sprintf("ChangeAddress must be on active series; series #%d is not", seriesID)
 		return nil, newError(ErrSeriesNotActive, str, nil)
 	}
 
-	// Branch is always 0 for change addresses.
 	script, err := p.DepositScript(seriesID, Branch(0), index)
 	if err != nil {
 		return nil, err
@@ -843,12 +849,6 @@ func (a *poolAddress) Branch() Branch {
 
 func (a *poolAddress) Index() Index {
 	return a.index
-}
-
-func (a *ChangeAddress) Next() (*ChangeAddress, error) {
-	// TODO: When we reach the last index, move on to the next active series and
-	// start again from index=0.
-	return a.pool.ChangeAddress(a.seriesID, a.index+1)
 }
 
 // IsEmpowered returns true if this series is empowered (i.e. if it has
