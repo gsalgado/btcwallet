@@ -746,7 +746,8 @@ func (p *Pool) addUsedAddr(seriesID uint32, branch Branch, index Index) error {
 
 	// First ensure the address manager has our script. That way there's no way
 	// to have it in the used addresses DB but not in the address manager.
-	// XXX: Need to check with dave what to do about the blockstamp here.
+	// TODO: Decide how far back we want the addr manager to rescan and set the
+	// BlockStamp height according to that.
 	_, err = p.manager.ImportScript(script, &waddrmgr.BlockStamp{})
 	if err != nil && err.(waddrmgr.ManagerError).ErrorCode != waddrmgr.ErrDuplicate {
 		return err
