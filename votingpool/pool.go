@@ -721,15 +721,13 @@ func (p *Pool) ensureUsedAddr(seriesID uint32, branch Branch, index Index) error
 		// highestUsedIndexFor() returns 0 when there are no used addresses for a
 		// given seriesID/branch, so we do this to ensure there is an entry with
 		// index==0.
-		err := p.addUsedAddr(seriesID, branch, lastIdx)
-		if err != nil {
+		if err := p.addUsedAddr(seriesID, branch, lastIdx); err != nil {
 			return err
 		}
 	}
 	lastIdx++
 	for lastIdx <= index {
-		err := p.addUsedAddr(seriesID, branch, lastIdx)
-		if err != nil {
+		if err := p.addUsedAddr(seriesID, branch, lastIdx); err != nil {
 			return err
 		}
 		lastIdx++

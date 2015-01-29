@@ -98,8 +98,8 @@ func TstNewDepositScript(t *testing.T, p *Pool, seriesID uint32, branch Branch, 
 	return script
 }
 
-// TstEnsureUsedAddr ensures the address defined by the given series/branch/idx
-// is present in the set of used addresses for the given Pool.
+// TstEnsureUsedAddr ensures the addresses defined by the given series/branch and
+// index==0..idx are present in the set of used addresses for the given Pool.
 func TstEnsureUsedAddr(t *testing.T, p *Pool, seriesID uint32, branch Branch, idx Index) []byte {
 	addr, err := p.getUsedAddr(seriesID, branch, idx)
 	if err != nil {
