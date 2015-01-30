@@ -860,7 +860,11 @@ func signMultiSigUTXO(mgr *waddrmgr.Manager, tx *btcwire.MsgTx, idx int, pkScrip
 
 	// Combine the redeem script and the unlocking script to get the actual signature script.
 	sigScript := unlockingScript.AddData(redeemScript)
-	tx.TxIn[idx].SignatureScript = sigScript.Script()
+	script, err := sigScript.Script()
+	if err != nil {
+		return newError(ErrTxSigning, "error building sigscript", err)
+	}
+	tx.TxIn[idx].SignatureScript = script
 
 	if err := validateSigScript(tx, idx, pkScript); err != nil {
 		return err
@@ -896,22 +900,32 @@ func calculateSize(tx *withdrawalTx) int {
 	}
 	// Craft a SignatureScript with dummy signatures for every input in this tx
 	// so that we can use msgtx.SerializeSize() to get its size and don't need
-	// to rely on estimations. Notice that we use 73 as the signature length as
-	// that's the maximum length they may have[1]. Because of that the size
-	// returned here can be up to 2 bytes bigger for every signature in every
-	// input.
-	// [1] https://en.bitcoin.it/wiki/Elliptic_Curve_Digital_Signature_Algorithm
-	dummySig := bytes.Repeat([]byte{1}, 73)
+	// to rely on estimations.
 	for i, txin := range msgtx.TxIn {
+		// 1 byte for the OP_FALSE opcode, then 73+1 bytes for each signature
+		// with their OP_DATA opcode and finally the redeem script + 1 byte
+		// for its OP_PUSHDATA opcode and N bytes for the redeem script's size.
+		// Notice that we use 73 as the signature length as that's the maximum
+		// length they may have:
+		// https://en.bitcoin.it/wiki/Elliptic_Curve_Digital_Signature_Algorithm
 		addr := tx.inputs[i].Address()
-		sigScript := btcscript.NewScriptBuilder().AddOp(btcscript.OP_FALSE)
-		for c := 0; c < int(addr.Series().reqSigs); c++ {
-			sigScript.AddData(dummySig)
-		}
-		sigScript.AddData(addr.RedeemScript())
-		txin.SignatureScript = sigScript.Script()
+		redeemScriptLen := len(addr.RedeemScript())
+		n := nBytesToSerialize(redeemScriptLen)
+		sigScriptLen := 1 + (74 * int(addr.Series().reqSigs)) + redeemScriptLen + 1 + n
+		txin.SignatureScript = bytes.Repeat([]byte{1}, sigScriptLen)
 	}
 	return msgtx.SerializeSize()
+}
+
+// nBytesToSerialize returns the number of bytes needed to serialize the given
+// value.
+func nBytesToSerialize(value int) int {
+	if value <= 0xff {
+		return 1
+	} else if value <= 0xffff {
+		return 2
+	}
+	return 4
 }
 
 func nextChangeAddr(a *ChangeAddress) (*ChangeAddress, error) {
