@@ -22,12 +22,13 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcwallet/snacl"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
 )
 
+// TODO: Rename votingPoolID to poolID everywhere in this file.
+
 // These constants define the serialized length for a given encrypted extended
-//  public or private key.
+// public or private key.
 const (
 	// We can calculate the encrypted extended key length this way:
 	// snacl.Overhead == overhead for encrypting (16)
@@ -56,13 +57,68 @@ type dbSeriesRow struct {
 	privKeysEncrypted [][]byte
 }
 
+// getUsedAddrBucketID returns the used addresses bucket ID for the given pool,
+// series and branch. It has the form poolID:seriesID:branch.
+func getUsedAddrBucketID(poolID []byte, seriesID uint32, branch Branch) []byte {
+	return bytes.Join(
+		[][]byte{poolID, uint32ToBytes(seriesID), uint32ToBytes(uint32(branch))},
+		[]byte(":"))
+}
+
+// putUsedAddrHash adds an entry (key==index, value==encryptedHash) to the used
+// addresses bucket of the given pool, series and branch.
+func putUsedAddrHash(tx walletdb.Tx, poolID []byte, seriesID uint32, branch Branch,
+	index Index, encryptedHash []byte) error {
+
+	bucket, err := tx.RootBucket().CreateBucketIfNotExists(
+		getUsedAddrBucketID(poolID, seriesID, branch))
+	if err != nil {
+		return err
+	}
+	return bucket.Put(uint32ToBytes(uint32(index)), encryptedHash)
+}
+
+// getUsedAddrHash returns the addr hash with the given index from the used
+// addresses bucket of the given pool, series and branch.
+func getUsedAddrHash(
+	tx walletdb.Tx, poolID []byte, seriesID uint32, branch Branch, index Index) []byte {
+
+	bucket := tx.RootBucket().Bucket(getUsedAddrBucketID(poolID, seriesID, branch))
+	if bucket == nil {
+		return nil
+	}
+	return bucket.Get(uint32ToBytes(uint32(index)))
+}
+
+// getMaxUsedIdx returns the highest used index from the used addresses bucket
+// of the given pool, series and branch.
+func getMaxUsedIdx(tx walletdb.Tx, poolID []byte, seriesID uint32, branch Branch) (Index, error) {
+	maxIdx := Index(0)
+	bucket := tx.RootBucket().Bucket(getUsedAddrBucketID(poolID, seriesID, branch))
+	if bucket == nil {
+		return maxIdx, nil
+	}
+	err := bucket.ForEach(
+		func(k, v []byte) error {
+			idx := Index(bytesToUint32(k))
+			if idx > maxIdx {
+				maxIdx = idx
+			}
+			return nil
+		})
+	if err != nil {
+		return Index(0), err
+	}
+	return maxIdx, nil
+}
+
 // putPool stores a voting pool in the database, creating a bucket named
 // after the voting pool id.
 func putPool(tx walletdb.Tx, votingPoolID []byte) error {
 	_, err := tx.RootBucket().CreateBucket(votingPoolID)
 	if err != nil {
 		str := fmt.Sprintf("cannot create voting pool %v", votingPoolID)
-		return managerError(waddrmgr.ErrDatabase, str, err)
+		return newError(ErrDatabase, str, err)
 	}
 	return nil
 }
@@ -78,7 +134,7 @@ func loadAllSeries(tx walletdb.Tx, votingPoolID []byte) (map[uint32]*dbSeriesRow
 			series, err := deserializeSeriesRow(v)
 			if err != nil {
 				str := fmt.Sprintf("cannot deserialize series %v", v)
-				return managerError(waddrmgr.ErrSeriesStorage, str, err)
+				return newError(ErrSeriesStorage, str, err)
 			}
 			allSeries[seriesID] = series
 			return nil
@@ -116,17 +172,17 @@ func putSeriesRow(tx walletdb.Tx, votingPoolID []byte, ID uint32, row *dbSeriesR
 	bucket, err := tx.RootBucket().CreateBucketIfNotExists(votingPoolID)
 	if err != nil {
 		str := fmt.Sprintf("cannot create bucket %v", votingPoolID)
-		return managerError(waddrmgr.ErrDatabase, str, err)
+		return newError(ErrDatabase, str, err)
 	}
 	serialized, err := serializeSeriesRow(row)
 	if err != nil {
 		str := fmt.Sprintf("cannot serialize series %v", row)
-		return managerError(waddrmgr.ErrSeriesStorage, str, err)
+		return newError(ErrSeriesStorage, str, err)
 	}
 	err = bucket.Put(uint32ToBytes(ID), serialized)
 	if err != nil {
 		str := fmt.Sprintf("cannot put series %v into bucket %v", serialized, votingPoolID)
-		return managerError(waddrmgr.ErrSeriesStorage, str, err)
+		return newError(ErrSeriesStorage, str, err)
 	}
 	return nil
 }
@@ -144,7 +200,7 @@ func deserializeSeriesRow(serializedSeries []byte) (*dbSeriesRow, error) {
 	if len(serializedSeries) < seriesMinSerial {
 		str := fmt.Sprintf("serialized series is too short: %v",
 			serializedSeries)
-		return nil, managerError(waddrmgr.ErrSeriesStorage, str, nil)
+		return nil, newError(ErrSeriesStorage, str, nil)
 	}
 
 	// Maximum number of public keys is 15 and the same for public keys
@@ -152,7 +208,7 @@ func deserializeSeriesRow(serializedSeries []byte) (*dbSeriesRow, error) {
 	if len(serializedSeries) > seriesMaxSerial {
 		str := fmt.Sprintf("serialized series is too long: %v",
 			serializedSeries)
-		return nil, managerError(waddrmgr.ErrSeriesStorage, str, nil)
+		return nil, newError(ErrSeriesStorage, str, nil)
 	}
 
 	// Keeps track of the position of the next set of bytes to deserialize.
@@ -163,7 +219,7 @@ func deserializeSeriesRow(serializedSeries []byte) (*dbSeriesRow, error) {
 	if row.version > seriesMaxVersion {
 		str := fmt.Sprintf("deserialization supports up to version %v not %v",
 			seriesMaxVersion, row.version)
-		return nil, managerError(waddrmgr.ErrSeriesVersion, str, nil)
+		return nil, newError(ErrSeriesVersion, str, nil)
 	}
 	current += 4
 
@@ -180,11 +236,11 @@ func deserializeSeriesRow(serializedSeries []byte) (*dbSeriesRow, error) {
 	if len(serializedSeries) < current+int(nKeys)*seriesKeyLength*2 {
 		str := fmt.Sprintf("serialized series has not enough data: %v",
 			serializedSeries)
-		return nil, managerError(waddrmgr.ErrSeriesStorage, str, nil)
+		return nil, newError(ErrSeriesStorage, str, nil)
 	} else if len(serializedSeries) > current+int(nKeys)*seriesKeyLength*2 {
 		str := fmt.Sprintf("serialized series has too much data: %v",
 			serializedSeries)
-		return nil, managerError(waddrmgr.ErrSeriesStorage, str, nil)
+		return nil, newError(ErrSeriesStorage, str, nil)
 	}
 
 	// Deserialize the pubkey/privkey pairs.
@@ -219,13 +275,13 @@ func serializeSeriesRow(row *dbSeriesRow) ([]byte, error) {
 		len(row.pubKeysEncrypted) != len(row.privKeysEncrypted) {
 		str := fmt.Sprintf("different # of pub (%v) and priv (%v) keys",
 			len(row.pubKeysEncrypted), len(row.privKeysEncrypted))
-		return nil, managerError(waddrmgr.ErrSeriesStorage, str, nil)
+		return nil, newError(ErrSeriesStorage, str, nil)
 	}
 
 	if row.version > seriesMaxVersion {
 		str := fmt.Sprintf("serialization supports up to version %v, not %v",
 			seriesMaxVersion, row.version)
-		return nil, managerError(waddrmgr.ErrSeriesVersion, str, nil)
+		return nil, newError(ErrSeriesVersion, str, nil)
 	}
 
 	serialized := make([]byte, 0, serializedLen)
@@ -245,7 +301,7 @@ func serializeSeriesRow(row *dbSeriesRow) ([]byte, error) {
 		if len(pubKeyEncrypted) != seriesKeyLength {
 			str := fmt.Sprintf("wrong length of Encrypted Public Key: %v",
 				pubKeyEncrypted)
-			return nil, managerError(waddrmgr.ErrSeriesStorage, str, nil)
+			return nil, newError(ErrSeriesStorage, str, nil)
 		}
 		serialized = append(serialized, pubKeyEncrypted...)
 
@@ -260,7 +316,7 @@ func serializeSeriesRow(row *dbSeriesRow) ([]byte, error) {
 		} else if len(privKeyEncrypted) != seriesKeyLength {
 			str := fmt.Sprintf("wrong length of Encrypted Private Key: %v",
 				len(privKeyEncrypted))
-			return nil, managerError(waddrmgr.ErrSeriesStorage, str, nil)
+			return nil, newError(ErrSeriesStorage, str, nil)
 		} else {
 			serialized = append(serialized, privKeyEncrypted...)
 		}

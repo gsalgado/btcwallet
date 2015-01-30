@@ -22,6 +22,8 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 )
 
+const TstEligibleInputMinConfirmations = eligibleInputMinConfirmations
+
 // TstPutSeries transparently wraps the voting pool putSeries method.
 func (vp *Pool) TstPutSeries(version, seriesID, reqSigs uint32, inRawPubKeys []string) error {
 	return vp.putSeries(version, seriesID, reqSigs, inRawPubKeys)
@@ -31,7 +33,21 @@ var TstBranchOrder = branchOrder
 
 // TstExistsSeries checks whether a series is stored in the database.
 func (vp *Pool) TstExistsSeries(seriesID uint32) (bool, error) {
-	return vp.existsSeries(seriesID)
+	var exists bool
+	err := vp.namespace.View(
+		func(tx walletdb.Tx) error {
+			bucket := tx.RootBucket().Bucket(vp.ID)
+			if bucket == nil {
+				exists = false
+				return nil
+			}
+			exists = bucket.Get(uint32ToBytes(seriesID)) != nil
+			return nil
+		})
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 // TstNamespace exposes the Pool's namespace as it's needed in some tests.
@@ -73,45 +89,3 @@ func (vp *Pool) TstEmptySeriesLookup() {
 func (vp *Pool) TstDecryptExtendedKey(keyType waddrmgr.CryptoKeyType, encrypted []byte) (*hdkeychain.ExtendedKey, error) {
 	return vp.decryptExtendedKey(keyType, encrypted)
 }
-
-// SeriesRow mimics dbSeriesRow defined in db.go .
-type SeriesRow struct {
-	Version           uint32
-	Active            bool
-	ReqSigs           uint32
-	PubKeysEncrypted  [][]byte
-	PrivKeysEncrypted [][]byte
-}
-
-// SerializeSeries wraps serializeSeriesRow by passing it a freshly-built
-// dbSeriesRow.
-func SerializeSeries(version uint32, active bool, reqSigs uint32, pubKeys, privKeys [][]byte) ([]byte, error) {
-	row := &dbSeriesRow{
-		version:           version,
-		active:            active,
-		reqSigs:           reqSigs,
-		pubKeysEncrypted:  pubKeys,
-		privKeysEncrypted: privKeys,
-	}
-	return serializeSeriesRow(row)
-}
-
-// DeserializeSeries wraps deserializeSeriesRow and returns a freshly-built
-// SeriesRow.
-func DeserializeSeries(serializedSeries []byte) (*SeriesRow, error) {
-	row, err := deserializeSeriesRow(serializedSeries)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &SeriesRow{
-		Version:           row.version,
-		Active:            row.active,
-		ReqSigs:           row.reqSigs,
-		PubKeysEncrypted:  row.pubKeysEncrypted,
-		PrivKeysEncrypted: row.privKeysEncrypted,
-	}, nil
-}
-
-var TstValidateAndDecryptKeys = validateAndDecryptKeys

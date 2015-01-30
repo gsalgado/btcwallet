@@ -1075,6 +1075,25 @@ func (s *Store) removeConflict(r *txRecord) error {
 	return nil
 }
 
+// UnconfirmedSpent returns the TxOut for the given OutPoint, provided it is in
+// an unconfirmed transaction.
+func (s *Store) UnconfirmedSpent(outpoint btcwire.OutPoint) (*btcwire.TxOut, error) {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+
+	for op, key := range s.unconfirmed.spentBlockOutPointKeys {
+		if outpoint == op {
+			r, err := s.lookupBlockTx(key.BlockTxKey)
+			if err != nil {
+				return nil, err
+			}
+			return r.Tx().MsgTx().TxOut[outpoint.Index], nil
+		}
+	}
+	return nil, errors.New(
+		fmt.Sprintf("no unconfirmed spent TxOut found for outpoint %v", outpoint))
+}
+
 // UnspentOutputs returns all unspent received transaction outputs.
 // The order is undefined.
 func (s *Store) UnspentOutputs() ([]Credit, error) {
