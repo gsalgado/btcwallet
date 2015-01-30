@@ -69,6 +69,43 @@ const withdrawalOutputStatusSuccess = "success"
 const withdrawalOutputStatusPartial = "partial-"
 const withdrawalOutputStatusSplit = "split"
 
+// OutputRequest represents one of the outputs (address/amount) requested by a
+// withdrawal, and includes information about the user's outbailment request.
+type OutputRequest struct {
+	address  btcutil.Address
+	amount   btcutil.Amount
+	pkScript []byte
+
+	// The notary server that received the outbailment request.
+	server string
+
+	// The server-specific transaction number for the outbailment request.
+	transaction uint32
+
+	// cachedHash is used to cache the hash of the outBailmentID so it
+	// only has to be calculated once.
+	cachedHash []byte
+}
+
+// WithdrawalOutput represents a possibly fulfilled OutputRequest.
+type WithdrawalOutput struct {
+	request OutputRequest
+	status  string
+	// The outpoints that fulfill the OutputRequest. There will be more than one in case we
+	// need to split the request across multiple transactions.
+	outpoints []OutBailmentOutpoint
+}
+
+// OutBailmentOutpoint represents one of the outpoints created to fulfil an OutputRequest.
+type OutBailmentOutpoint struct {
+	ntxid  string
+	index  uint32
+	amount btcutil.Amount
+}
+
+// WithdrawalStatus contains the details of a processed withdrawal, including
+// the status of each requested output, the total amount of network fees and the
+// next input and change addresses to use in a subsequent withdrawal request.
 type WithdrawalStatus struct {
 	nextInputStart  WithdrawalAddress
 	nextChangeStart ChangeAddress
@@ -76,9 +113,15 @@ type WithdrawalStatus struct {
 	outputs         map[string]*WithdrawalOutput
 }
 
-func (s *WithdrawalStatus) Outputs() map[string]*WithdrawalOutput {
-	return s.outputs
-}
+// TxSigs is list of raw signatures (one for every pubkey in the multi-sig
+// script) for a given transaction input. They should match the order of pubkeys
+// in the script and an empty RawSig should be used when the private key for a
+// pubkey is not known.
+type TxSigs [][]RawSig
+
+// RawSig represents one of the signatures included in the unlocking script of
+// inputs spending from P2SH UTXOs.
+type RawSig []byte
 
 // byAmount defines the methods needed to satisify sort.Interface to
 // sort a slice of OutputRequests by their amount.
@@ -98,22 +141,10 @@ func (s byOutBailmentID) Less(i, j int) bool {
 	return bytes.Compare(s[i].outBailmentIDHash(), s[j].outBailmentIDHash()) < 0
 }
 
-// OutputRequest represents one of the outputs (address/amount) requested by a
-// withdrawal, and includes information about the user's outbailment request.
-type OutputRequest struct {
-	address  btcutil.Address
-	amount   btcutil.Amount
-	pkScript []byte
-
-	// The notary server that received the outbailment request.
-	server string
-
-	// The server-specific transaction number for the outbailment request.
-	transaction uint32
-
-	// cachedHash is used to cache the hash of the outBailmentID so it
-	// only has to be calculated once.
-	cachedHash []byte
+// Outputs returns a map of outbailment IDs to WithdrawalOutputs for all outputs
+// requested in this withdrawal.
+func (s *WithdrawalStatus) Outputs() map[string]*WithdrawalOutput {
+	return s.outputs
 }
 
 // String makes OutputRequest satisfy the Stringer interface.
@@ -140,15 +171,6 @@ func (r OutputRequest) outBailmentIDHash() []byte {
 	return id
 }
 
-// WithdrawalOutput represents a possibly fulfilled OutputRequest.
-type WithdrawalOutput struct {
-	request OutputRequest
-	status  string
-	// The outpoints that fulfill the OutputRequest. There will be more than one in case we
-	// need to split the request across multiple transactions.
-	outpoints []OutBailmentOutpoint
-}
-
 func (o *WithdrawalOutput) String() string {
 	return fmt.Sprintf("WithdrawalOutput for %s", o.request)
 }
@@ -157,36 +179,26 @@ func (o *WithdrawalOutput) addOutpoint(outpoint OutBailmentOutpoint) {
 	o.outpoints = append(o.outpoints, outpoint)
 }
 
+// Status returns the status of this WithdrawalOutput.
 func (o *WithdrawalOutput) Status() string {
 	return o.status
 }
 
+// Address returns the string representation of this WithdrawalOutput's address.
 func (o *WithdrawalOutput) Address() string {
 	return o.request.address.String()
 }
 
+// Outpoints returns a slice containing the OutBailmentOutpoints created to
+// fulfill this output.
 func (o *WithdrawalOutput) Outpoints() []OutBailmentOutpoint {
 	return o.outpoints
 }
 
-// OutBailmentOutpoint represents one of the outpoints created to fulfil an OutputRequest.
-type OutBailmentOutpoint struct {
-	ntxid  string
-	index  uint32
-	amount btcutil.Amount
-}
-
+// Amount returns the amount (in satoshis) in this OutBailmentOutpoint.
 func (o OutBailmentOutpoint) Amount() btcutil.Amount {
 	return o.amount
 }
-
-// TxSigs is list of raw signatures (one for every pubkey in the multi-sig
-// script) for a given transaction input. They should match the order of pubkeys
-// in the script and an empty RawSig should be used when the private key for a
-// pubkey is not known.
-type TxSigs [][]RawSig
-
-type RawSig []byte
 
 // withdrawal holds all the state needed for Pool.Withdrawal() to do its job.
 type withdrawal struct {
@@ -395,6 +407,14 @@ func newWithdrawal(roundID uint32, requests []OutputRequest, inputs []Credit,
 	}
 }
 
+// StartWithdrawal uses a fully deterministic algorithm to construct
+// transactions fulfilling as many of the given output requests as possible.
+// Those transactions are stored unsigned in the txstore, and it returns a
+// WithdrawalStatus containing the outpoints fulfilling the requested outputs
+// and a map of normalized transaction IDs (ntxid) to signature lists (one for
+// every private key available to this wallet) for each of those transaction's
+// inputs. More details about the actual algorithm can be found at
+// http://opentransactions.org/wiki/index.php/Startwithdrawal
 func (p *Pool) StartWithdrawal(
 	roundID uint32, requests []OutputRequest, startAddress *WithdrawalAddress,
 	lastSeriesID uint32, changeStart *ChangeAddress, txStore *txstore.Store, chainHeight int32,
