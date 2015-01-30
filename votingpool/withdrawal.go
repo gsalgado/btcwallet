@@ -30,33 +30,6 @@ import (
 	"github.com/btcsuite/fastsha256"
 )
 
-/*  ==== What needs to be stored in the DB, and other notes ====
-(This is just a collection of notes about things we still need to do here)
-
-== To be stored in the DB ==
-
-Signature lists
-
-All parameters of a startwithdrawal, to be able to return an error if we get two of them
-with the same roundID but anything else different.
-
-The whole WithdrawalStatus so that we can deal with multiple identical startwithdrawal
-requests. We need to do that because the transactions created as part of a startwithdrawal
-will mark outputs as spent and if we get a second identical startwithdrawal request we
-won't be able construct the same transactions as we did in the first request.
-
-== Other notes ==
-
-Using separate DB Buckets for the transactions and the withdrawal registry (siglists, etc)
-may be problematic.  We'll need to make sure both the transactions and the withdrawal
-details are persisted atomically.
-
-Since we're marking outputs as spent when we use them in transactions constructed in
-startwithdrawal, we'll need a janitor process that eventually releases those if the
-transactions are never confirmed.
-
-*/
-
 // Maximum tx size (in bytes). This should be the same as bitcoind's
 // MAX_STANDARD_TX_SIZE.
 const txMaxSize = 100000
